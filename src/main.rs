@@ -3,6 +3,8 @@
 mod app;
 mod config;
 mod i18n;
+pub mod picker;
+pub mod widget;
 
 fn main() -> cosmic::iced::Result {
     // Get the system's preferred languages.

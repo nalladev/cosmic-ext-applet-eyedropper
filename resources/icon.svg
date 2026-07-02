@@ -1,2 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg"/>
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <!-- Eyedropper icon -->
+  <g stroke="none" fill-rule="nonzero">
+    <!-- Dropper body -->
+    <rect x="68" y="40" width="12" height="60" rx="2" fill="#808080"/>
+    <!-- Dropper tip -->
+    <path d="M68 40 L68 32 L80 32 L80 40 Z" fill="#A0A0A0"/>
+    <!-- Rubber bulb -->
+    <ellipse cx="74" cy="30" rx="8" ry="6" fill="#E05050"/>
+    <!-- Colored drop -->
+    <path d="M58 94 C58 100, 66 100, 66 94 C66 90, 62 84, 62 84 C62 84, 58 90, 58 94 Z" fill="#4080FF"/>
+    <!-- Shine on drop -->
+    <ellipse cx="60" cy="94" rx="1.5" ry="2" fill="#80B0FF" opacity="0.6"/>
+  </g>
+</svg>

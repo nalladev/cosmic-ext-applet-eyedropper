@@ -1,0 +1,7 @@
+{
+  "auto_install_extensions": {
+    "toml": true,
+    "justfile": true,
+    "xml": true
+  }
+}
