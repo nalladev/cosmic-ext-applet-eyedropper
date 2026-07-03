@@ -6,7 +6,7 @@
 //! (MIT-licensed) to match the iced Widget trait in this version
 //! of libcosmic.
 
-use cosmic::iced::core::event::{self, Event};
+use cosmic::iced::core::event::Event;
 use cosmic::iced::core::keyboard;
 use cosmic::iced::core::layout::{self, Node};
 use cosmic::iced::core::mouse;

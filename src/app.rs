@@ -17,7 +17,7 @@ use cosmic::{
         Alignment, Border, ContentFit, Event, Length, Limits, Subscription,
         event, mouse,
         platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup},
-        widget::{column, container, row, space, Canvas, MouseArea, Stack},
+        widget::{column, container, row, space, MouseArea, Stack},
         window::{self, Id},
     },
     prelude::*,
