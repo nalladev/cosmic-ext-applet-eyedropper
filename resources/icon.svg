@@ -1,16 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <!-- Eyedropper icon -->
-  <g stroke="none" fill-rule="nonzero">
-    <!-- Dropper body -->
-    <rect x="68" y="40" width="12" height="60" rx="2" fill="#808080"/>
-    <!-- Dropper tip -->
-    <path d="M68 40 L68 32 L80 32 L80 40 Z" fill="#A0A0A0"/>
-    <!-- Rubber bulb -->
-    <ellipse cx="74" cy="30" rx="8" ry="6" fill="#E05050"/>
-    <!-- Colored drop -->
-    <path d="M58 94 C58 100, 66 100, 66 94 C66 90, 62 84, 62 84 C62 84, 58 90, 58 94 Z" fill="#4080FF"/>
-    <!-- Shine on drop -->
-    <ellipse cx="60" cy="94" rx="1.5" ry="2" fill="#80B0FF" opacity="0.6"/>
-  </g>
+<svg viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'>
+  <path d='M13.47.97v.002a1.5 1.5 0 0 0-1.031.453l-2.356 2.356L8.15 1.847a1 1 0 0 0-.004-.004 1 1 0 0 0-.006-.006 1 1 0 0 0-.707-.293 1 1 0 0 0-1 1 1 1 0 0 0 .294.705l-.002.002 5.99 5.99a1 1 0 0 0 .01.01 1 1 0 0 0 .007.006 1 1 0 0 0 .701.288 1 1 0 0 0 1-1 1 1 0 0 0-.287-.702l-.006-.006-1.932-1.93 2.358-2.357c.613-.597.566-1.473.11-2.033A1.476 1.476 0 0 0 13.47.97zM7.5 5.986l-5.493 5.5-.008 2.5h.006v.004h2.508l5.492-5.5L10 8.486 7.505 5.99z' fill='#dedede'/>
 </svg>
