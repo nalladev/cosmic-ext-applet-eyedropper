@@ -11,7 +11,6 @@
 //! via condvars for blocking waits.
 
 use std::collections::HashMap;
-use std::io::Write;
 use std::os::fd::{AsFd, OwnedFd};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread;
@@ -236,20 +235,7 @@ impl CaptureHelper {
         }];
 
         // Capture and wait for Ready / Failed.
-        let t_before_capture = std::time::Instant::now();
         let res = session.capture_wl_buffer_blocking(&buffer, damage, &self.inner.qh);
-        let capture_elapsed = t_before_capture.elapsed();
-        eprintln!(
-            "[capture]   capture_wl_buffer_blocking took {:?} to return",
-            capture_elapsed
-        );
-        if let Ok(ref mut f) = std::fs::OpenOptions::new()
-            .create(true).append(true).open("/tmp/capture_debug.log")
-        {
-            use std::io::Write;
-            let _ = writeln!(f, "[capture_source_shm_blocking] capture_wl_buffer_blocking took {:?}", capture_elapsed);
-        }
-        std::io::stderr().flush().ok();
         buffer.destroy();
 
         match res {
@@ -371,21 +357,7 @@ impl CaptureSession {
         buffer_damage: &[Rect],
         qh: &QueueHandle<AppData>,
     ) -> Result<Frame, WEnum<FailureReason>> {
-        let mut dbg = std::fs::OpenOptions::new()
-            .create(true).append(true).open("/tmp/capture_debug.log").ok();
-        let mut dbg_line = |msg: &str| {
-            let ts = std::time::Instant::now();
-            let line = format!("{:?} {}", ts, msg);
-            if let Some(ref mut f) = dbg {
-                use std::io::Write;
-                let _ = writeln!(f, "{}", line.trim());
-            }
-            eprint!("{}", line);
-            let _ = std::io::stderr().flush();
-        };
-        dbg_line("capture_wl_buffer_blocking: calling session.capture()...");
         let (sender, receiver) = std::sync::mpsc::channel();
-        let t_sess = std::time::Instant::now();
         self.0.capture_session.capture(
             buffer,
             buffer_damage,
@@ -395,26 +367,13 @@ impl CaptureSession {
                 sender: Mutex::new(Some(sender)),
             },
         );
-        dbg_line(&format!("session.capture() returned after {:?}", t_sess.elapsed()));
-        let t_flush = std::time::Instant::now();
-        let flush_result = self.0.conn.flush();
-        dbg_line(&format!("conn.flush() took {:?}, result={:?}", t_flush.elapsed(), flush_result));
-        dbg_line("waiting for ready/failed (blocking on mpsc)...");
-        let t_recv = std::time::Instant::now();
+        self.0.conn.flush().ok();
         match receiver.recv_timeout(Duration::from_secs(5)) {
-            Ok(result) => {
-                dbg_line(&format!("got response from compositor after {:?}", t_recv.elapsed()));
-                result
-            }
+            Ok(result) => result,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                dbg_line(&format!("TIMEOUT after 5s — compositor did not send ready/failed (total={:?})", t_recv.elapsed()));
-                dbg_line(&format!("Session stopped={}, formats={:?}",
-                    self.0.state.lock().unwrap().stopped,
-                    self.0.state.lock().unwrap().formats.is_some()));
                 Err(WEnum::Value(FailureReason::Stopped))
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                dbg_line("DISCONNECTED — sender dropped");
                 Err(WEnum::Value(FailureReason::Stopped))
             }
         }

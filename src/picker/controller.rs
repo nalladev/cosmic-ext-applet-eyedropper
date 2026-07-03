@@ -216,11 +216,6 @@ impl PickerController {
 
         self.hover = Some(info);
 
-        // Update the legacy fields for callers that still reference them.
-        // Can be removed once all consumers use `hover`.
-        // self.cursor_pos = Some(global_pos);
-        // self.active_output = Some(output_idx);
-
         Some(info)
     }
 

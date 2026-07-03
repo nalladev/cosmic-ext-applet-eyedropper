@@ -988,14 +988,7 @@ impl AppModel {
             return space::horizontal().width(Length::Fixed(1.0)).into();
         };
 
-        eprintln!("[picker] view_picker_overlay({id:?}) — state={:?}", picker.state);
-
         // ── Picking state: full interaction ────────────────────────────
-        eprintln!("[picker]   Picking branch — image + MouseArea + magnifier");
-        eprintln!("[picker]   image_handles={}, captures={}, overlays={}",
-            picker.image_handles.len(), picker.captures.len(), picker.overlay_ids.len());
-        eprintln!("[DEBUG]   overlay_id={:?}, output_idx={:?}",
-            id, picker.overlay_ids.iter().position(|oid| *oid == id));
         let on_move = move |point: cosmic::iced::Point| {
             Message::PointerMoved(id, point.x, point.y)
         };
