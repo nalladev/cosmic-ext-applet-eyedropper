@@ -16,13 +16,13 @@ use cosmic::{
     iced::{
         Alignment, Border, ContentFit, Event, Length, Limits, Subscription,
         event, mouse,
-        widget::{column, container, row, MouseArea, Stack},
+        platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup},
+        widget::{column, container, row, space, Canvas, MouseArea, Stack},
         window::{self, Id},
     },
-    iced_winit::commands::popup::{destroy_popup, get_popup},
     prelude::*,
     theme,
-    widget::{button, canvas, divider, horizontal_space, icon, image, text},
+    widget::{button, canvas, divider, icon, image, text},
 };
 use cosmic::iced::clipboard;
 use cosmic::iced::core::event::wayland::OutputEvent;
@@ -311,7 +311,7 @@ impl cosmic::Application for AppModel {
                 .unwrap_or_default();
             eprintln!("[startup] after config load at t={:?}", t_start.elapsed());
 
-            let app = AppModel {
+                let app = AppModel {
                 core,
                 config: config_entry,
                 popup: None,
@@ -334,12 +334,17 @@ impl cosmic::Application for AppModel {
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {
+        eprintln!("[DEBUG] on_close_requested(id={id:?})");
+        eprintln!("[DEBUG]   popup={:?}, pending={:?}, picker_overlays={:?}",
+            self.popup, self.pending_popup_close,
+            self.picker.as_ref().map(|p| &p.overlay_ids));
         // If an overlay window is closed externally, cancel the picker.
         if self
             .picker
             .as_ref()
             .map_or(false, |p| p.overlay_ids.contains(&id))
         {
+            eprintln!("[DEBUG]   -> overlay close -> PickerCancel");
             return Some(Message::PickerCancel);
         }
         // Otherwise it's the popup.  Also match popups that were closed
@@ -347,8 +352,10 @@ impl cosmic::Application for AppModel {
         // close notification must still arrive even though `self.popup`
         // was already cleared to None.  See EyedropperClicked.
         if self.popup == Some(id) || self.pending_popup_close == Some(id) {
+            eprintln!("[DEBUG]   -> popup close -> PopupClosed");
             return Some(Message::PopupClosed(id));
         }
+        eprintln!("[DEBUG]   -> no match, returning None");
         None
     }
 
@@ -367,10 +374,12 @@ impl cosmic::Application for AppModel {
 
     /// Draw a window – either the popup or a picker overlay.
     fn view_window(&self, id: Id) -> Element<'_, Self::Message> {
-        static FIRST_VW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-        if FIRST_VW.swap(false, std::sync::atomic::Ordering::Relaxed) {
-            eprintln!("[startup] first view_window() called (id={id:?})");
-        }
+        static VW_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let count = VW_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        eprintln!("[DEBUG] view_window(id={id:?}) call #{count}");
+        eprintln!("[DEBUG]   picker={:?}, popup={:?}",
+            self.picker.as_ref().map(|p| &p.overlay_ids),
+            self.popup);
 
         // Is this a picker overlay?
         if self
@@ -378,16 +387,19 @@ impl cosmic::Application for AppModel {
             .as_ref()
             .map_or(false, |p| p.overlay_ids.contains(&id))
         {
+            eprintln!("[DEBUG]   -> routing to view_picker_overlay");
             return self.view_picker_overlay(id);
         }
 
         // Is this the popup?
         if self.popup == Some(id) {
+            eprintln!("[DEBUG]   -> routing to view_popup");
             return self.view_popup();
         }
 
-        // Unknown window – render a 1×1 placeholder.
-        horizontal_space().width(Length::Fixed(1.0)).into()
+        // Fallback: unknown window — render nothing.
+        eprintln!("[DEBUG]   -> UNKNOWN window id, rendering placeholder");
+        space::horizontal().width(Length::Fixed(1.0)).into()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -816,7 +828,7 @@ impl cosmic::Application for AppModel {
         Task::none()
     }
 
-    fn style(&self) -> Option<cosmic::iced_runtime::Appearance> {
+    fn style(&self) -> Option<cosmic::iced::theme::Style> {
         Some(cosmic::applet::style())
     }
 }
@@ -855,7 +867,7 @@ impl AppModel {
                 .padding(0)
                 .into()
         } else {
-            horizontal_space().width(Length::Fixed(24.0)).into()
+            space::horizontal().width(Length::Fixed(24.0)).into()
         };
 
         padded_control(
@@ -897,7 +909,7 @@ impl AppModel {
             .map(|c| cosmic::iced::Color::from_rgb8(c.r, c.g, c.b))
             .unwrap_or(cosmic::iced::Color::WHITE);
 
-        let swatch = container(horizontal_space())
+        let swatch = container(space::horizontal())
             .width(32)
             .height(32)
             .style(move |_: &cosmic::Theme| container::Style {
@@ -973,7 +985,7 @@ impl AppModel {
     fn view_picker_overlay(&self, id: Id) -> Element<'_, Message> {
         let Some(picker) = self.picker.as_ref() else {
             eprintln!("[picker] view_picker_overlay({id:?}) — no picker, rendering placeholder");
-            return horizontal_space().width(Length::Fixed(1.0)).into();
+            return space::horizontal().width(Length::Fixed(1.0)).into();
         };
 
         eprintln!("[picker] view_picker_overlay({id:?}) — state={:?}", picker.state);
@@ -982,6 +994,8 @@ impl AppModel {
         eprintln!("[picker]   Picking branch — image + MouseArea + magnifier");
         eprintln!("[picker]   image_handles={}, captures={}, overlays={}",
             picker.image_handles.len(), picker.captures.len(), picker.overlay_ids.len());
+        eprintln!("[DEBUG]   overlay_id={:?}, output_idx={:?}",
+            id, picker.overlay_ids.iter().position(|oid| *oid == id));
         let on_move = move |point: cosmic::iced::Point| {
             Message::PointerMoved(id, point.x, point.y)
         };
@@ -1005,7 +1019,7 @@ impl AppModel {
 
         // Event layer: transparent overlay for pointer tracking.
         let event_layer = MouseArea::new(
-            container(horizontal_space())
+            container(space::horizontal())
                 .width(Length::Fill)
                 .height(Length::Fill),
         )
