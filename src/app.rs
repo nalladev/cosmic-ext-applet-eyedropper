@@ -1215,7 +1215,7 @@ impl AppModel {
         const GRID_SIZE: usize = 17;   // odd for centred crosshair
         const PIXEL_SCALE: f32 = 8.0;  // logical pixels per magnified cell
         const HALF: i32 = (GRID_SIZE / 2) as i32;
-        const BELOW_OFFSET: f32 = 28.0;
+        const BELOW_OFFSET: f32 = 14.0;
 
         let picker = self.picker.as_ref()?;
         let hover = picker.hover.as_ref()?;
@@ -1252,8 +1252,8 @@ impl AppModel {
         // Surface-local cursor coordinates (output-relative).
         let (cur_x, cur_y) = hover.local_pos;
 
-        let offset_x = 24.0;  // right of cursor
-        let offset_y = -(total + 24.0);  // above cursor
+        let offset_x = 12.0;  // right of cursor
+        let offset_y = -(total + 12.0);  // above cursor
 
         let mut mag_x = cur_x + offset_x;
         let mut mag_y = cur_y + offset_y;
