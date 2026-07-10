@@ -313,6 +313,7 @@ pub enum Message {
     // ── Pre-created overlay lifecycle ──────────────────────────────────
     /// A pre-created overlay surface has been acknowledged by the
     /// compositor (configure received).
+    #[allow(dead_code)]
     OverlayCreated(Id),
 }
 
@@ -429,7 +430,7 @@ impl cosmic::Application for AppModel {
         if self
             .picker
             .as_ref()
-            .map_or(false, |p| p.overlay_ids.contains(&id))
+            .is_some_and(|p| p.overlay_ids.contains(&id))
             || self.pending_overlay_ids.contains(&id)
         {
             eprintln!("[DEBUG]   -> routing to view_picker_overlay");
@@ -552,7 +553,7 @@ impl cosmic::Application for AppModel {
             Message::SessionsPrepared => {
                 let prepared = self.prepared_sessions_slot.lock().unwrap().take();
                 eprintln!("[picker] SessionsPrepared — {} output(s) ready",
-                    prepared.as_ref().map_or(0, |p| p.len()));
+                    prepared.as_ref().map_or(0, std::vec::Vec::len));
                 self.prepared_sessions = prepared;
                 return self.maybe_start_final_capture();
             }
@@ -721,7 +722,7 @@ impl cosmic::Application for AppModel {
                     self.picker = Some(PickerController::new_with_captures(
                         captures, image_handles, overlay_ids,
                     ));
-                    eprintln!("[picker]   picker created in Picking state with {} overlays (pre-created path)", n_overlays);
+                    eprintln!("[picker]   picker created in Picking state with {n_overlays} overlays (pre-created path)");
                     eprintln!(
                         "[picker]   CaptureCompleted handler took {:?}",
                         t_capture.elapsed(),
@@ -757,7 +758,7 @@ impl cosmic::Application for AppModel {
                 self.picker = Some(PickerController::new_with_captures(
                     captures, image_handles, overlay_ids,
                 ));
-                eprintln!("[picker]   picker created in Picking state with {} overlays", n_overlays);
+                eprintln!("[picker]   picker created in Picking state with {n_overlays} overlays");
                 eprintln!(
                     "[picker]   CaptureCompleted handler took {:?}",
                     t_capture.elapsed(),
