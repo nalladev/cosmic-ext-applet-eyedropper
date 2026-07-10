@@ -150,3 +150,8 @@ impl From<Color> for (String, String, String) {
 /// Delegates to [`wayland::capture_all_outputs`] which spawns a thread and
 /// uses the singleton persistent Wayland connection.
 pub use wayland::capture_all_outputs;
+
+/// Two-phase capture: negotiate sessions ahead of time ([`prepare_all_outputs`])
+/// then grab the frames once it's safe to do so ([`finish_all_outputs`]).
+/// See the docs on these functions for why this split exists.
+pub use wayland::{finish_all_outputs, prepare_all_outputs, PreparedOutputCapture};

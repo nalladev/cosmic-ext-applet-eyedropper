@@ -200,9 +200,16 @@ impl CaptureHelper {
         }))
     }
 
-    /// Capture a source to SHM, blocking until the frame is ready (synchronous
-    /// version of portal's `WaylandHelper::capture_source_shm`).
-    pub fn capture_source_shm_blocking(&self, source: CaptureSource) -> Option<ShmImage> {
+    /// Negotiate a capture session and allocate a buffer for `source`,
+    /// without grabbing the actual frame yet.
+    ///
+    /// This is the slow, round-trip-heavy half of a capture (session
+    /// creation + format negotiation + buffer allocation).  It has no
+    /// dependency on what is currently on screen, so callers can run it
+    /// concurrently with other UI transitions (e.g. closing our popup) and
+    /// pay only for the fast [`Self::finish_capture_shm_blocking`] step once
+    /// it is actually safe to grab pixels.
+    pub fn prepare_source_shm_blocking(&self, source: CaptureSource) -> Option<PreparedCapture> {
         let session = self.capture_source_session(source);
 
         // Wait for the compositor to send formats (BufferSize + ShmFormat + Done).
@@ -211,13 +218,13 @@ impl CaptureHelper {
 
         if width == 0 || height == 0 {
             eprintln!(
-                "[capture] capture_source_shm_blocking: compositor gave zero-sized buffer"
+                "[capture] prepare_source_shm_blocking: compositor gave zero-sized buffer"
             );
             return None;
         }
 
         eprintln!(
-            "[capture] capture_source_shm_blocking: {}x{} format=Abgr8888",
+            "[capture] prepare_source_shm_blocking: {}x{} format=Abgr8888",
             width, height
         );
 
@@ -225,6 +232,30 @@ impl CaptureHelper {
         let fd = create_memfd(width, height);
         let buffer =
             self.create_shm_buffer(&fd, width, height, width * 4, wl_shm::Format::Abgr8888);
+
+        Some(PreparedCapture {
+            session,
+            buffer,
+            width,
+            height,
+            fd,
+        })
+    }
+
+    /// Finish a capture previously started with
+    /// [`Self::prepare_source_shm_blocking`]: grab the actual frame and
+    /// block until the compositor signals Ready / Failed.
+    ///
+    /// This should be fast (roughly one compositor frame) since all the
+    /// slow negotiation already happened in the `prepare` step.
+    pub fn finish_capture_shm_blocking(&self, prepared: PreparedCapture) -> Option<ShmImage> {
+        let PreparedCapture {
+            session,
+            buffer,
+            width,
+            height,
+            fd,
+        } = prepared;
 
         // Full damage rect (copied from portal — empty damage is incorrect).
         let damage = &[Rect {
@@ -267,6 +298,15 @@ impl CaptureHelper {
         }
     }
 
+    /// Capture a source to SHM, blocking until the frame is ready.
+    /// Equivalent to calling [`Self::prepare_source_shm_blocking`] followed
+    /// immediately by [`Self::finish_capture_shm_blocking`].  Kept for
+    /// call sites that don't need to overlap negotiation with other work.
+    pub fn capture_source_shm_blocking(&self, source: CaptureSource) -> Option<ShmImage> {
+        let prepared = self.prepare_source_shm_blocking(source)?;
+        self.finish_capture_shm_blocking(prepared)
+    }
+
     /// Create a `wl_buffer` from a memfd (copied from portal's `create_shm_buffer`).
     ///
     /// The pool is destroyed immediately after creating the buffer, matching
@@ -298,6 +338,28 @@ impl CaptureHelper {
         pool.destroy();
         buffer
     }
+}
+
+// ---------------------------------------------------------------------------
+// PreparedCapture — a negotiated session + allocated buffer, ready for the
+// actual (fast) frame-grab step.
+// ---------------------------------------------------------------------------
+
+/// The result of [`CaptureHelper::prepare_source_shm_blocking`]: a capture
+/// session with formats negotiated and a buffer already allocated.
+///
+/// Only the (fast) [`CaptureHelper::finish_capture_shm_blocking`] step
+/// remains.  Splitting the capture this way lets callers overlap the slow
+/// negotiation with other async work (e.g. closing a popup) so that only
+/// the minimal, fast "grab the frame" step happens once it's actually safe
+/// to capture pixels — minimising any visible gap before the frozen overlay
+/// appears.
+pub struct PreparedCapture {
+    session: CaptureSession,
+    buffer: wl_buffer::WlBuffer,
+    width: u32,
+    height: u32,
+    fd: OwnedFd,
 }
 
 // ---------------------------------------------------------------------------
