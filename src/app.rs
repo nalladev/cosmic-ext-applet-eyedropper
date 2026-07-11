@@ -11,7 +11,7 @@ use crate::picker::PickerController;
 use crate::widget::keyboard_wrapper::KeyboardWrapper;
 use cosmic::{
     applet::{menu_button, padded_control},
-    cosmic_config::{self, ConfigSet, CosmicConfigEntry},
+    cosmic_config::{self, CosmicConfigEntry},
     cosmic_theme::Spacing,
     iced::{
         Alignment, Border, ContentFit, Event, Length, Limits, Subscription,
@@ -207,8 +207,6 @@ pub struct AppModel {
     popup: Option<Id>,
     /// Configuration data that persists between application runs.
         config: Config,
-        /// `cosmic_config` context for writing configuration changes.
-        config_context: cosmic_config::Config,
 
         // ── Eyedropper / colour-picker state ────────────────────────────
     /// The most recently sampled colour (if any).
@@ -228,37 +226,6 @@ pub struct AppModel {
     /// `Some` while the user is in picker mode (overlays are visible).
     /// `None` during normal operation.
     picker: Option<PickerController>,
-
-    // ── Deferred capture synchronisation ──────────────────────────────
-    /// When entering picker mode, the popup must be fully gone before
-    /// capture starts (otherwise the popup appears in the screenshot).
-    /// This field holds the destroyed popup's ID; when `PopupClosed`
-    /// fires with a matching ID we know the compositor has removed the
-    /// popup and it is safe to begin capture.
-    pending_popup_close: Option<Id>,
-
-    // ── Two-phase capture (flicker-free entry into picker mode) ──────────
-    // Session negotiation (`prepare_all_outputs`) runs concurrently with
-    // closing the popup; the fast frame-grab (`finish_all_outputs`) only
-    // starts once *both* are done, whichever finishes last.
-    /// Pre-negotiated capture sessions, ready for the final (fast) frame
-    /// grab.  `None` until `SessionsPrepared` arrives.
-    prepared_sessions: Option<Vec<picker::PreparedOutputCapture>>,
-    /// Set if session negotiation failed; the fallback is to run the full
-    /// (slower) single-shot capture once the popup is confirmed closed.
-    sessions_prepare_failed: bool,
-    /// Set once the popup is confirmed closed while entering picker mode —
-        /// i.e. we're just waiting on `prepared_sessions` / `sessions_prepare_failed`
-        /// before starting the final capture.
-        popup_confirmed_for_picker: bool,
-        /// New restore token from the portal session, to be stored in config.
-        new_restore_token: Option<String>,
-        /// Hand-off slot for the (non-`Clone`) prepared sessions produced by the
-    /// `prepare_all_outputs` background task.  The task writes into this
-    /// slot and emits the lightweight `Message::SessionsPrepared`; the
-    /// handler then `take()`s the value out into `prepared_sessions`.
-    prepared_sessions_slot:
-        std::sync::Arc<std::sync::Mutex<Option<Vec<picker::PreparedOutputCapture>>>>,
 
     // ── Pre-created overlay tracking ───────────────────────────────────
     /// Overlay window IDs that have been pre-created (transparent) but
@@ -285,22 +252,13 @@ pub enum Message {
     UpdateConfig(Config),
 
     // ── Capture flow ────────────────────────────────────────────────
-    /// The eyedropper button was clicked in the popup.
-    EyedropperClicked,
-    /// Raw captured output data is ready.
-        CaptureCompleted(Vec<CapturedOutput>, Option<String>),
-        /// The capture failed with an error message.
-    CaptureFailed(String),
-    /// Capture sessions have been negotiated (formats + buffers ready) for
-        /// all outputs.  The actual prepared data is handed off out-of-band
-        /// (see `prepared_sessions_slot`) since it isn't `Clone`.
-        #[allow(dead_code)]
-        SessionsPrepared,
-        /// Session negotiation finished with a new restore token.
-        SessionsPreparedWithToken(Option<String>),
-        /// Session negotiation failed; fall back to the single-shot capture
-        /// pipeline once the popup is confirmed closed.
-        SessionsPrepareFailed(String),
+        // ────────────────────────────────────────────────
+            /// The eyedropper button was clicked in the popup.
+            EyedropperClicked,
+            /// Screenshot captured and per-output data is ready.
+            CaptureCompleted(Vec<CapturedOutput>),
+            /// The screenshot capture failed with an error message.
+            CaptureFailed(String),
 
     // ── Wayland output tracking ─────────────────────────────────────
     OutputEvent(Box<OutputEvent>, WlOutput),
@@ -354,43 +312,36 @@ impl cosmic::Application for AppModel {
             _flags: Self::Flags,
         ) -> (Self, Task<cosmic::Action<Self::Message>>) {
             let config_context = cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
-                                        .map_or_else(
-                                            |_| {
-                                                let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
-                                                (ctx, Config::default())
-                                            },
-                                            |context| {
-                                                match Config::get_entry(&context) {
-                                                    Ok(config) => (context, config),
-                                                    Err((_errors, config)) => (context, config),
-                                                }
-                                            },
-                                        );
+                                                    .map_or_else(
+                                                        |_| {
+                                                            let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
+                                                            (ctx, Config::default())
+                                                        },
+                                                        |context| {
+                                                            match Config::get_entry(&context) {
+                                                                Ok(config) => (context, config),
+                                                                Err((_errors, config)) => (context, config),
+                                                            }
+                                                        },
+                                                    );
 
-                        let (config_context, config_entry) = config_context;
+                                    let (_config_context, config_entry) = config_context;
 
-            let app = AppModel {
-                            core,
-                            config: config_entry,
-                            config_context,
-                            popup: None,
-                sampled: None,
-                error: None,
-                hex: String::new(),
-                rgb: String::new(),
-                hsl: String::new(),
-                outputs: Vec::new(),
-                picker: None,
-                pending_popup_close: None,
-                prepared_sessions: None,
-                sessions_prepare_failed: false,
-                popup_confirmed_for_picker: false,
-                                new_restore_token: None,
-                                prepared_sessions_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
-                pending_overlay_ids: Vec::new(),
-                copied_target: None,
-                copied_at: None,
-            };
+                        let app = AppModel {
+                                                    core,
+                                                    config: config_entry,
+                                                    popup: None,
+                            sampled: None,
+                            error: None,
+                            hex: String::new(),
+                            rgb: String::new(),
+                            hsl: String::new(),
+                            outputs: Vec::new(),
+                            picker: None,
+                            pending_overlay_ids: Vec::new(),
+                            copied_target: None,
+                            copied_at: None,
+                        };
 
             // If frosted glass is enabled for applets but the runtime didn't
             // auto-enable blur (theme.transparent starts false), poke it now.
@@ -410,23 +361,20 @@ impl cosmic::Application for AppModel {
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {
-        // If an overlay window is closed externally, cancel the picker.
-        if self
-            .picker
-            .as_ref()
-            .is_some_and(|p| p.overlay_ids.contains(&id))
-        {
-            return Some(Message::PickerCancel);
+            // If an overlay window is closed externally, cancel the picker.
+            if self
+                .picker
+                .as_ref()
+                .is_some_and(|p| p.overlay_ids.contains(&id))
+            {
+                return Some(Message::PickerCancel);
+            }
+            // Otherwise it's the popup.
+            if self.popup == Some(id) {
+                return Some(Message::PopupClosed(id));
+            }
+            None
         }
-        // Otherwise it's the popup.  Also match popups that were closed
-        // as part of entering picker mode (pending_popup_close) — their
-        // close notification must still arrive even though `self.popup`
-        // was already cleared to None.  See EyedropperClicked.
-        if self.popup == Some(id) || self.pending_popup_close == Some(id) {
-            return Some(Message::PopupClosed(id));
-        }
-        None
-    }
 
     /// Draw the applet button in the panel.
     fn view(&self) -> Element<'_, Self::Message> {
@@ -480,209 +428,97 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
 
         match message {
-            // ── Toggle the eyedropper popup ─────────────────────────────
-            Message::TogglePopup => {
-                // Ignore while in picker mode or waiting for popup close.
-                if self.picker.is_some() || self.pending_popup_close.is_some() {
-                    return Task::none();
-                }
-                return if let Some(p) = self.popup.take() {
-                    surface::surface_task(surface::action::destroy_popup(p))
-                } else {
-                    surface::surface_task(surface::action::app_popup(
-                        |_| LiveSettings::default(),
-                        |app: &mut AppModel| {
-                            let new_id = Id::unique();
-                            app.popup.replace(new_id);
-                            let mut popup_settings = app.core.applet.get_popup_settings(
-                                app.core.main_window_id().unwrap(),
-                                new_id,
+                    // ────────────────────────────────────────────────
+                    Message::TogglePopup => {
+                        // Ignore while in picker mode.
+                        if self.picker.is_some() {
+                            return Task::none();
+                        }
+                        return if let Some(p) = self.popup.take() {
+                            surface::surface_task(surface::action::destroy_popup(p))
+                        } else {
+                            surface::surface_task(surface::action::app_popup(
+                                |_| LiveSettings::default(),
+                                |app: &mut AppModel| {
+                                    let new_id = Id::unique();
+                                    app.popup.replace(new_id);
+                                    let mut popup_settings = app.core.applet.get_popup_settings(
+                                        app.core.main_window_id().unwrap(),
+                                        new_id,
+                                        None,
+                                        None,
+                                        None,
+                                    );
+                                    popup_settings.positioner.size_limits = Limits::NONE
+                                        .max_width(372.0)
+                                        .min_width(300.0)
+                                        .min_height(200.0)
+                                        .max_height(1080.0);
+                                    popup_settings
+                                },
                                 None,
-                                None,
-                                None,
-                            );
-                            popup_settings.positioner.size_limits = Limits::NONE
-                                .max_width(372.0)
-                                .min_width(300.0)
-                                .min_height(200.0)
-                                .max_height(1080.0);
-                            popup_settings
-                        },
-                        None,
-                    ))
-                };
-            }
+                            ))
+                        };
+                    }
 
             // ── Popup was closed ────────────────────────────────────────
-            Message::PopupClosed(id) => {
-                eprintln!("[picker] PopupClosed({id:?})");
-                eprintln!("[picker]   self.popup={:?}, pending_popup_close={:?}",
-                    self.popup, self.pending_popup_close);
+            // ────────────────────────────────────────────────
+                        Message::PopupClosed(id) => {
+                            eprintln!("[picker] PopupClosed({id:?})");
 
-                // Normal popup lifecycle (user closed it manually).
-                if self.popup.as_ref() == Some(&id) {
-                    self.popup = None;
-                    self.copied_target = None;
-                    self.copied_at = None;
-                    eprintln!("[picker]   normal popup close — no capture.");
-                }
+                            // Normal popup lifecycle (user closed it manually).
+                            if self.popup.as_ref() == Some(&id) {
+                                self.popup = None;
+                                self.copied_target = None;
+                                self.copied_at = None;
+                                eprintln!("[picker]   normal popup close — no capture.");
+                            }
+                        }
 
-                // Deferred capture: the popup was closed as part of
-                // entering picker mode.  The compositor has now confirmed
-                // the popup is gone; the *fast* final capture step can
-                // start as soon as sessions are also ready (see
-                // `maybe_start_final_capture`) — this is what keeps the
-                // live-desktop gap (and thus the flicker) as short as
-                // possible.
-                if self.pending_popup_close == Some(id) {
-                    self.pending_popup_close = None;
-                    self.popup_confirmed_for_picker = true;
-                    eprintln!("[picker]   MATCH! popup confirmed closed, checking sessions.");
-                    return self.maybe_start_final_capture();
-                }
-                eprintln!("[picker]   no match (pending={:?}, normal={:?})",
-                    self.pending_popup_close, self.popup);
-            }
+            // ────────────────────────────────────────────────
+                        Message::UpdateConfig(config) => {
+                            self.config = config;
+                        }
 
-            // ── Capture sessions negotiated (formats + buffers ready) ────
-            Message::SessionsPrepared => {
-                let prepared = self.prepared_sessions_slot.lock().unwrap().take();
-                eprintln!("[picker] SessionsPrepared — {} output(s) ready",
-                    prepared.as_ref().map_or(0, std::vec::Vec::len));
-                self.prepared_sessions = prepared;
-                return self.maybe_start_final_capture();
-            }
+                        // ────────────────────────────────────────────────
+                        Message::EyedropperClicked => {
+                            eprintln!("[picker] EyedropperClicked — starting Screenshot portal capture");
 
-            // ── Capture session negotiation failed ───────────────────────
-            Message::SessionsPrepareFailed(msg) => {
-                eprintln!("[picker] SessionsPrepareFailed: {msg}");
-                self.sessions_prepare_failed = true;
-                return self.maybe_start_final_capture();
-            }
+                            // Ignore if already picking
+                            if self.picker.is_some() {
+                                eprintln!("[picker]   WARNING: ignored — picker already active");
+                                return Task::none();
+                            }
 
-            // ── Configuration updated externally ────────────────────────
-            Message::UpdateConfig(config) => {
-                self.config = config;
-            }
+                            self.error = None;
+                            self.sampled = None;
+                            self.copied_target = None;
+                            self.copied_at = None;
 
-            // ── Eyedropper button clicked ───────────────────────────────
-            Message::EyedropperClicked => {
-                eprintln!("[picker] EyedropperClicked — entering picker mode");
+                            // Start capture in background
+                            let capture_task = Task::perform(
+                                picker::capture_outputs(),
+                                |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
+                                    Ok(captures) => Message::CaptureCompleted(captures),
+                                    Err(e) => Message::CaptureFailed(e.to_string()),
+                                },
+                            ).map(cosmic::Action::App);
 
-                // Ignore if already in picker mode.
-                if self.picker.is_some() || self.pending_popup_close.is_some() || !self.pending_overlay_ids.is_empty() {
-                    eprintln!("[picker]   WARNING: ignored — picker={}, pending_close={}, pending_overlays={}",
-                        self.picker.is_some(),
-                        self.pending_popup_close.is_some(),
-                        self.pending_overlay_ids.len(),
-                    );
-                    return Task::none();
-                }
+                            // Close popup if open
+                            if let Some(popup_id) = self.popup.take() {
+                                return Task::batch(vec![
+                                    surface::surface_task(surface::action::destroy_popup(popup_id)),
+                                    capture_task,
+                                ]);
+                            }
 
-                self.error = None;
-                self.sampled = None;
-                self.copied_target = None;
-                self.copied_at = None;
+                            // Popup already closed, just start capture
+                            return capture_task;
+                        }
 
-                eprintln!("[picker]   tracked outputs: {}", self.outputs.len());
-
-                self.prepared_sessions = None;
-                self.sessions_prepare_failed = false;
-                self.popup_confirmed_for_picker = false;
-
-                // ── Pre-create transparent overlay surfaces ────────────
-                //
-                // Layer surfaces are created *before* destroying the popup
-                // so that when the popup disappears, the compositor already
-                // has the overlay committed and ready to display.  The
-                // overlay starts transparent (no captures yet) and shows
-                // the frozen image once the capture completes — eliminating
-                // the visible flicker of the live desktop.
-                //
-                // The slow session/format negotiation runs concurrently
-                // with both the overlay creation and popup destruction.
-                if let Some(popup_id) = self.popup.take() {
-                    self.pending_popup_close = Some(popup_id);
-                    self.pending_overlay_ids.clear();
-                    eprintln!("[picker]   popup {popup_id:?} removed, pending_popup_close set.");
-
-                    // 1. Create transparent overlay surfaces on all outputs.
-                    let mut overlay_tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
-                    let mut overlay_ids = Vec::new();
-                    for (i, output_state) in self.outputs.iter().enumerate() {
-                        let overlay_id = output_state.id;
-                        overlay_ids.push(overlay_id);
-                        eprintln!("[picker]   pre-creating overlay[{i}] id={overlay_id:?} on output '{}'", output_state.name);
-                        overlay_tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
-                            id: overlay_id,
-                            layer: Layer::Overlay,
-                            keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                            anchor: Anchor::all(),
-                            output: IcedOutput::Output(output_state.output.clone()),
-                            namespace: "color-picker".to_string(),
-                            size: Some((None, None)),
-                            exclusive_zone: -1,
-                            size_limits: Limits::NONE.min_height(1.0).min_width(1.0),
-                            ..Default::default()
-                        }));
-                    }
-                    self.pending_overlay_ids = overlay_ids;
-
-                    // 2. Start session negotiation (slow) concurrently.
-                    let slot = self.prepared_sessions_slot.clone();
-                                        let prepare_task = Task::perform(
-                                            async move {
-                                                match picker::prepare_all_outputs().await {
-                                                    Ok((prepared, new_token)) => {
-                                                        *slot.lock().unwrap() = Some(prepared);
-                                                        Ok(new_token)
-                                                    }
-                                                    Err(e) => Err(e.to_string()),
-                                                }
-                                            },
-                                            |result: Result<Option<String>, String>| {
-                                                let msg = match result {
-                                                    Ok(new_token) => Message::SessionsPreparedWithToken(new_token),
-                                                    Err(e) => Message::SessionsPrepareFailed(e),
-                                                };
-                                                cosmic::Action::App(msg)
-                                                                        },
-                                                                    );
-
-                    // All three happen concurrently: overlays appear (transparent),
-                    // popup disappears, and session negotiation runs in background.
-                    // When the capture completes, the frozen image populates the
-                    // already-visible overlay — no flicker.
-                    let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = overlay_tasks;
-                    tasks.push(surface::surface_task(surface::action::destroy_popup(popup_id)));
-                    tasks.push(prepare_task);
-                    return Task::batch(tasks);
-                }
-                eprintln!("[picker]   popup was already closed — starting capture immediately.");
-                return Task::perform(
-                    picker::capture_all_outputs(),
-                                        |result| {
-                                            let msg = match result {
-                                                Ok((outputs, new_token)) => Message::CaptureCompleted(outputs, new_token),
-                                                Err(e) => Message::CaptureFailed(e.to_string()),
-                                            };
-                                            cosmic::Action::App(msg)
-                                        },
-                                    );
-                                }
-
-                                // ── Capture completed successfully ──────────────────────────
-                                Message::CaptureCompleted(captures, new_restore_token) => {
-                                                // Persist restore_token for next session
-                                                                if let Some(token) = new_restore_token {
-                    eprintln!("[picker] Got restore_token: {token:?}");
-                                                                    self.config.restore_token = Some(token.clone());
-                                                                    let txn = self.config_context.transaction();
-                                                                    let _ = txn.set("restore_token", token);
-                                                                    if let Err(e) = txn.commit() { eprintln!("[picker] Failed to save restore_token: {e}"); } else { eprintln!("[picker] Stored restore_token in config"); }
-                                                                    eprintln!("[picker] Stored restore_token in config");
-                                                                }
-                let t_capture = std::time::Instant::now();
+                        // ────────────────────────────────────────────────
+                                    Message::CaptureCompleted(captures) => {
+                                        let t_capture = std::time::Instant::now();
                 eprintln!("[picker] CaptureCompleted — {} outputs", captures.len());
                 for cap in &captures {
                     eprintln!("[picker]   output: {} {}x{} @({},{}) logical {}x{} rgba={}b",
@@ -848,58 +684,57 @@ impl cosmic::Application for AppModel {
             }
 
             // ── Pointer clicked on a picker overlay ───────────────────
-            Message::PointerClicked(id) => {
-                eprintln!("[picker] PointerClicked({id:?})");
-                if let Some(picker) = self.picker.as_mut() {
-                    eprintln!("[picker]   picker state={:?}, captures={}", picker.state, picker.captures.len());
-                    if let Some(color) = picker.on_pointer_click(id) {
-                        eprintln!("[picker]   COLOUR SELECTED: {} / {} / {}",
-                            color.hex(), color.rgb(), color.hsl());
-                        // Colour selected — exit picker mode.
-                        let overlays = picker.overlay_ids.clone();
-                        self.picker.take();
+                        Message::PointerClicked(id) => {
+                            eprintln!("[picker] PointerClicked({id:?})");
+                            if let Some(picker) = self.picker.as_mut() {
+                                eprintln!("[picker]   picker state={:?}, captures={}", picker.state, picker.captures.len());
+                                if let Some(color) = picker.on_pointer_click(id) {
+                                    eprintln!("[picker]   COLOUR SELECTED: {} / {} / {}",
+                                        color.hex(), color.rgb(), color.hsl());
+                                    // Colour selected — exit picker mode.
+                                    let overlays = picker.overlay_ids.clone();
+                                    self.picker.take();
 
-                        self.sampled = Some(color);
-                        self.hex = color.hex();
-                        self.rgb = color.rgb();
-                        self.hsl = color.hsl();
+                                    self.sampled = Some(color);
+                                    self.update_color_strings(color);
 
-                        let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
+                                    let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
 
-                        // Destroy all overlay surfaces.
-                        for oid in &overlays {
-                            tasks.push(destroy_layer_surface(*oid));
-                        }
+                                    // Destroy all overlay surfaces.
+                                    for oid in &overlays {
+                                        tasks.push(destroy_layer_surface(*oid));
+                                    }
 
-                        // Reopen the popup.
-                        tasks.push(surface::surface_task(surface::action::app_popup(
-                            |_| LiveSettings::default(),
-                            |app: &mut AppModel| {
-                                let new_id = Id::unique();
-                                app.popup.replace(new_id);
-                                let mut popup_settings = app.core.applet.get_popup_settings(
-                                    app.core.main_window_id().unwrap(),
-                                    new_id,
-                                    None,
-                                    None,
-                                    None,
-                                );
-                                popup_settings.positioner.size_limits = Limits::NONE
-                                    .max_width(372.0)
-                                    .min_width(300.0)
-                                    .min_height(200.0)
-                                    .max_height(1080.0);
-                                popup_settings
-                            },
-                            None,
-                        )));
+                                    // Reopen the popup.
+                                    tasks.push(surface::surface_task(surface::action::app_popup(
+                                        |_| LiveSettings::default(),
+                                        |app: &mut AppModel| {
+                                            let new_id = Id::unique();
+                                            app.popup.replace(new_id);
+                                            let mut popup_settings = app.core.applet.get_popup_settings(
+                                                app.core.main_window_id().unwrap(),
+                                                new_id,
+                                                None,
+                                                None,
+                                                None,
+                                            );
+                                            popup_settings.positioner.size_limits = Limits::NONE
+                                                                                            .max_width(372.0)
+                                                                                            .min_width(300.0)
+                                                                                            .min_height(200.0)
+                                                                                            .max_height(1080.0);
+                                                                                        popup_settings
+                                                                                    },
+                                                                                    None,
+                                                                                )));
 
-                        return Task::batch(tasks);
-                    }
-                }
-            }
+                                                                                return Task::batch(tasks);
+                                                                                                                                                                                                }
+                                                                                                                                                                                            }
+                                                                                                                                                                                            return Task::none().map(cosmic::Action::App)
+                                                                                                                                                                                        }
 
-            // ── Clipboard copy ─────────────────────────────────────────
+                                                // ── Clipboard copy ─────────────────────────────────────────
             Message::CopyHex => {
                 let hex = self.hex.clone();
                 if !hex.is_empty() {
@@ -958,26 +793,18 @@ impl cosmic::Application for AppModel {
 
             // ── Picker cancelled (Escape or external close) ────────────
             Message::PickerCancel => {
-                eprintln!("[picker] PickerCancel received");
-                return self.cancel_picker();
-            }
+                            eprintln!("[picker] PickerCancel received");
+                            return self.cancel_picker();
+                        }
 
-            // ── Pre-created overlay acknowledged by compositor ─────────
+                        // ─────────────────────────────────────────────────────────
                         Message::OverlayCreated(id) => {
                             eprintln!("[picker] OverlayCreated({id:?}) — overlay surface ready");
                         }
-                        Message::SessionsPreparedWithToken(new_token) => {
-                            self.new_restore_token = new_token;
-                            let prepared = self.prepared_sessions_slot.lock().unwrap().take();
-                            eprintln!("[picker] SessionsPreparedWithToken — {} output(s) ready",
-                                prepared.as_ref().map_or(0, std::vec::Vec::len));
-                            self.prepared_sessions = prepared;
-                            return self.maybe_start_final_capture();
-                        }
-        }
+                    }
 
-        Task::none()
-    }
+                    Task::none()
+                }
 
     fn style(&self) -> Option<cosmic::iced::theme::Style> {
         Some(cosmic::applet::style())
@@ -989,6 +816,13 @@ impl cosmic::Application for AppModel {
 // ---------------------------------------------------------------------------
 
 impl AppModel {
+    /// Update the cached color representation strings (hex, rgb, hsl) from a Color.
+    fn update_color_strings(&mut self, color: Color) {
+        self.hex = color.hex();
+        self.rgb = color.rgb();
+        self.hsl = color.hsl();
+    }
+
     /// Build a single colour-representation row (label + value + copy button).
     ///
     /// The copy-area shows a symbolic copy icon when a colour is available,
@@ -1296,103 +1130,55 @@ impl AppModel {
         )
     }
 
-    /// Start the final (fast) capture step once *both* of the following are
-    /// true: the popup has been confirmed closed, and we know whether the
-    /// pre-negotiated sessions are ready (or failed).  Called from the
-    /// `PopupClosed`, `SessionsPrepared`, and `SessionsPrepareFailed`
-    /// handlers — whichever of the two conditions is satisfied last is the
-    /// one that actually kicks off the capture.
-    fn maybe_start_final_capture(&mut self) -> Task<cosmic::Action<Message>> {
-        if !self.popup_confirmed_for_picker {
-            return Task::none();
-        }
-
-        if let Some(prepared) = self.prepared_sessions.take() {
-                            self.popup_confirmed_for_picker = false;
-                            eprintln!("[picker]   sessions ready — starting final (fast) capture.");
-                            let new_token = self.new_restore_token.take();
-                            return Task::perform(picker::finish_all_outputs(prepared), move |result| {
-                                    let msg = match result {
-                                        Ok(outputs) => Message::CaptureCompleted(outputs, new_token),
-                                        Err(e) => Message::CaptureFailed(e.to_string()),
-                                    };
-                                    cosmic::Action::App(msg)
-                                });
-        }
-
-        if self.sessions_prepare_failed {
-                            self.popup_confirmed_for_picker = false;
-                            self.sessions_prepare_failed = false;
-                            eprintln!("[picker]   sessions failed — falling back to single-shot capture.");
-                                                        return Task::perform(picker::capture_all_outputs(), move |result| {
-                                                                        let msg = match result {
-                                                                            Ok((outputs, new_token)) => Message::CaptureCompleted(outputs, new_token),
-                                                                            Err(e) => Message::CaptureFailed(e.to_string()),
-                                                                        };
-                                                                        cosmic::Action::App(msg)
-                                                                    });
-        }
-
-        // Popup is closed but sessions aren't ready or failed yet — wait for
-        // `SessionsPrepared` / `SessionsPrepareFailed`.
-        Task::none()
-    }
-
     /// Destroy all overlay surfaces and reopen the popup.
-    /// Used when the picker is cancelled or capture fails.
-    fn cancel_picker(&mut self) -> Task<cosmic::Action<Message>> {
-        eprintln!("[picker] cancel_picker()");
-        eprintln!("[picker]   pending_popup_close was {:?}, clearing", self.pending_popup_close);
-        eprintln!("[picker]   picker state was {:?}",
-            self.picker.as_ref().map(|p| p.state));
-        self.pending_popup_close = None;
-        self.popup_confirmed_for_picker = false;
-        self.prepared_sessions = None;
-        self.sessions_prepare_failed = false;
-        *self.prepared_sessions_slot.lock().unwrap() = None;
+        /// Used when the picker is cancelled or capture fails.
+        fn cancel_picker(&mut self) -> Task<cosmic::Action<Message>> {
+            eprintln!("[picker] cancel_picker()");
+            eprintln!("[picker]   picker state was {:?}",
+                self.picker.as_ref().map(|p| p.state));
 
-        let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
+            let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
 
-        // Destroy all overlay surfaces if picker exists.
-        if let Some(picker) = self.picker.take() {
-            for id in &picker.overlay_ids {
-                tasks.push(destroy_layer_surface(*id));
+            // Destroy all overlay surfaces if picker exists.
+            if let Some(picker) = self.picker.take() {
+                for id in &picker.overlay_ids {
+                    tasks.push(destroy_layer_surface(*id));
+                }
             }
-        }
 
-        // Destroy any pre-created (transparent) overlays that haven't been
-        // populated with captures yet.
-        for id in self.pending_overlay_ids.drain(..) {
-            tasks.push(destroy_layer_surface(id));
-        }
+            // Destroy any pre-created (transparent) overlays that haven't been
+            // populated with captures yet.
+            for id in self.pending_overlay_ids.drain(..) {
+                tasks.push(destroy_layer_surface(id));
+            }
 
-        // Reopen the popup if it's not already open.
-        // Always reopen – even when picker was None (e.g. Escape pressed
-        // before capture completed) – to avoid leaving the user without UI.
-        if self.popup.is_none() {
-            tasks.push(surface::surface_task(surface::action::app_popup(
-                |_| LiveSettings::default(),
-                |app: &mut AppModel| {
-                    let new_id = Id::unique();
-                    app.popup.replace(new_id);
-                    let mut popup_settings = app.core.applet.get_popup_settings(
-                        app.core.main_window_id().unwrap(),
-                        new_id,
-                        None,
-                        None,
-                        None,
-                    );
-                    popup_settings.positioner.size_limits = Limits::NONE
-                        .max_width(372.0)
-                        .min_width(300.0)
-                        .min_height(200.0)
-                        .max_height(1080.0);
-                    popup_settings
-                },
-                None,
-            )));
-        }
+            // Reopen the popup if it's not already open.
+            // Always reopen – even when picker was None (e.g. Escape pressed
+            // before capture completed) – to avoid leaving the user without UI.
+            if self.popup.is_none() {
+                tasks.push(surface::surface_task(surface::action::app_popup(
+                    |_| LiveSettings::default(),
+                    |app: &mut AppModel| {
+                        let new_id = Id::unique();
+                        app.popup.replace(new_id);
+                        let mut popup_settings = app.core.applet.get_popup_settings(
+                            app.core.main_window_id().unwrap(),
+                            new_id,
+                            None,
+                            None,
+                            None,
+                        );
+                        popup_settings.positioner.size_limits = Limits::NONE
+                            .max_width(372.0)
+                            .min_width(300.0)
+                            .min_height(200.0)
+                            .max_height(1080.0);
+                        popup_settings
+                    },
+                    None,
+                )));
+            }
 
-        if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
-    }
+            if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
+        }
 }

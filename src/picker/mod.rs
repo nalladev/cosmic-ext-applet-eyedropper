@@ -149,17 +149,20 @@ impl From<Color> for (String, String, String) {
     }
 }
 
-/// Capture all connected outputs using the persistent [`CaptureHelper`].
-///
-/// Delegates to [`wayland::capture_all_outputs`] which spawns a thread and
-/// uses the singleton persistent Wayland connection.
-///
-/// Returns the captured outputs and an optional restore token for future sessions.
-pub use wayland::capture_all_outputs;
 
-/// Two-phase capture: negotiate sessions ahead of time ([`prepare_all_outputs`])
-/// then grab the frames once it's safe to do so ([`finish_all_outputs`]).
-/// See the docs on these functions for why this split exists.
+
+/// Capture all connected outputs using the XDG Desktop Portal Screenshot API.
 ///
-/// Returns the prepared outputs and an optional restore token for future sessions.
-pub use wayland::{finish_all_outputs, prepare_all_outputs, PreparedOutputCapture};
+/// This is the same approach Flameshot uses:
+/// [`crate::picker::wayland::capture_outputs`] calls
+/// `org.freedesktop.portal.Screenshot` with `interactive=false` — a single
+/// portal D-Bus call that returns a full-desktop image URI.  The image is
+/// then cropped per-output using Wayland output geometry.
+///
+/// Compared to the old `ScreenCast` + `PipeWire` approach, this is much simpler:
+/// no `PipeWire`, no sessions, no restore tokens.  Permission persistence
+/// is handled automatically by the portal ("Remember" checkbox on first
+/// prompt).
+pub use wayland::capture_outputs;
+
+

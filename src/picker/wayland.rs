@@ -1,27 +1,28 @@
 // SPDX-License-Identifier: MPL-2.0
 
-//! Entry point for screen capture.
+//! Entry point for screen capture via the XDG Desktop Portal Screenshot API.
 //!
-//! This module provides the async capture functions that the event loop calls.
-//! It uses the XDG Desktop Portal `ScreenCast` API + `PipeWire` for capture,
-//! which works in both native and Flatpak builds.
+//! This uses the same approach as Flameshot: `org.freedesktop.portal.Screenshot`
+//! with `interactive=false` for a one-shot full-desktop capture with no
+//! per-call permission prompts (uses portal's "Remember" checkbox).
 //!
-//! The capture flow:
+//! The flow:
 //!
-//! 1. Create a portal `ScreenCast` session.
-//! 2. Select all monitors as sources.
-//! 3. Start the session → get `PipeWire` node IDs + fd.
-//! 4. Connect to `PipeWire`, create streams, wait for frames.
-//! 5. Read pixels from `PipeWire` buffers → `RgbaImage`.
+//! 1. Call `Screenshot::request().interactive(false)` → portal returns image
+//!    file URI (first time shows permission dialog with "Remember" checkbox).
+//! 2. Read the image file, crop per-output using Wayland output geometry.
+//! 3. Create per-output `CapturedOutput` with GPU handles.
+//!
+//! This completely avoids `PipeWire`, `ScreenCast` sessions, stream management,
+//! and restore tokens — it's a single portal call that returns the screenshot
+//! directly.
 
 use std::sync::OnceLock;
 
 use image::RgbaImage;
 use tokio::sync::oneshot;
 
-use crate::picker::capture::{
-    self, CaptureHelper, PortalOutputInfo, PreparedCapture,
-};
+use crate::picker::capture::CaptureHelper;
 use crate::picker::CapturedOutput;
 
 /// Extract a human-readable message from a `std::thread` panic payload.
@@ -49,81 +50,218 @@ fn helper() -> &'static CaptureHelper {
 }
 
 // ---------------------------------------------------------------------------
-// Single-shot capture (one portal session → all outputs)
+// Screenshot portal capture – the Flameshot approach.
 // ---------------------------------------------------------------------------
 
-/// Capture all connected outputs using a single portal session.
+/// Capture all outputs using the XDG Desktop Portal Screenshot API.
 ///
-/// Creates a portal session, connects `PipeWire`, and grabs frames
-/// from all monitors in one shot.
-#[allow(clippy::missing_errors_doc, clippy::too_many_lines)]
-pub async fn capture_all_outputs() -> Result<(Vec<CapturedOutput>, Option<String>), anyhow::Error> {
+/// This is exactly how Flameshot works on Wayland:
+/// `org.freedesktop.portal.Screenshot` with `interactive=false` gives
+/// a one-shot full-desktop screenshot. The portal handles permission
+/// persistence automatically (first call shows "Allow" dialog with
+/// "Remember" checkbox; subsequent calls are silent).
+///
+/// The image is cropped per-output using Wayland output geometry from
+/// the [`CaptureHelper`] singleton. Each output gets its own
+/// [`CapturedOutput`] with a GPU texture handle ready for overlay
+/// rendering.
+///
+/// Compared to the old `ScreenCast` + `PipeWire` approach this is:
+///
+/// * **No `PipeWire`** – no streams, no buffers, no fd, no frame sync.
+/// * **No session management** – no `create_session` / `select_sources` /
+///   `start` / `open_pipe_wire_remote` round-trips.
+/// * **No restore tokens** – the portal handles persistence internally.
+/// * **Single D-Bus call** – request → response with image URI.
+#[allow(
+    clippy::too_many_lines,
+    clippy::uninlined_format_args,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless,
+    clippy::items_after_statements,
+)]
+#[allow(clippy::missing_errors_doc)]
+pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
+    use ashpd::desktop::screenshot::Screenshot;
+
     let h = helper();
     let t_start = std::time::Instant::now();
-    eprintln!("[capture] === STARTING portal screen capture ===");
+    eprintln!("[capture] === Starting Screenshot portal capture ===");
 
-    let wl_outputs = h.outputs();
-    let n = wl_outputs.len();
-    eprintln!("[capture] {n} output(s) from CaptureHelper state");
+    // ── Phase 1: portal call (async D-Bus) ────────────────────────
+    let response = Screenshot::request()
+        .interactive(false)  // one-shot, no region selection UI
+        .modal(false)         // not a modal dialog
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Screenshot request failed: {e}"))?
+        .response()
+        .map_err(|e| anyhow::anyhow!("Screenshot response error: {e}"))?;
 
-    if n == 0 {
-        return Err(anyhow::anyhow!("No Wayland outputs found"));
-    }
+    let uri = response.uri();
+    let path = uri
+        .to_file_path()
+        .map_err(|()| anyhow::anyhow!("Cannot convert screenshot URI to file path: {uri}"))?;
+    eprintln!("[capture]   screenshot saved to: {}", path.display());
 
-    // Phase 1: portal D-Bus calls (async).
-        let (prepared, new_restore_token) = capture::portal_prepare_all(h, None).await?;
-
-        if prepared.is_empty() {
-        return Err(anyhow::anyhow!("Portal returned no streams"));
-    }
-
-    // Phase 2: PipeWire frame grab (blocking, on a thread).
+    // ── Phase 2: load, crop, build handles (blocking thread) ──────
     let (tx, rx) = oneshot::channel();
 
     std::thread::spawn(move || {
         let captured_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let shm_images = capture::pipewire_finish_all(&prepared)
-                .map_err(|e| anyhow::anyhow!("PipeWire capture failed: {e}"))?;
+            let t_load = std::time::Instant::now();
+            let full_img = image::open(&path)
+                .map_err(|e| anyhow::anyhow!("Failed to open screenshot image: {e}"))?;
+            let full_rgba = full_img.to_rgba8();
+            let full_width = full_rgba.width();
+            let full_height = full_rgba.height();
+            eprintln!(
+                "[capture]   loaded screenshot {}x{} in {:?}",
+                full_width,
+                full_height,
+                t_load.elapsed(),
+            );
 
-            let mut results: Vec<CapturedOutput> = Vec::with_capacity(shm_images.len());
+            // Clean up the temp file the portal left behind.
+            if let Err(e) = std::fs::remove_file(&path) {
+                eprintln!("[capture]   warning: failed to remove temp file: {e}");
+            }
 
-            for (shm_img, info) in shm_images {
-                            let t_read = std::time::Instant::now();
-                            let rgba: RgbaImage = shm_img.image_transformed()
-                    .map_err(|e| anyhow::anyhow!("image_transformed failed: {e}"))?;
-                eprintln!(
-                    "[capture]   image_transformed for '{}` took {:?} ({}x{})",
-                    info.name,
-                    t_read.elapsed(),
-                    rgba.width(),
-                    rgba.height(),
-                );
+            // Compute the total logical desktop area from all known outputs.
+            let wl_outputs = h.outputs();
+            let n = wl_outputs.len();
+            eprintln!("[capture]   {n} Wayland output(s) for cropping");
 
-                let t_handle = std::time::Instant::now();
+            if n == 0 {
+                eprintln!("[capture]   WARNING: no outputs discovered, using whole screenshot");
+                // Fallback: treat the whole screenshot as a single output.
                 let handle = cosmic::widget::image::Handle::from_rgba(
-                    rgba.width(),
-                    rgba.height(),
-                    rgba.clone().into_vec(),
+                    full_width,
+                    full_height,
+                    full_rgba.clone().into_vec(),
                 );
+                return Ok(vec![CapturedOutput {
+                    name: "screenshot".to_string(),
+                    rgba: full_rgba,
+                    image_handle: handle,
+                    width: full_width,
+                    height: full_height,
+                    logical_width: full_width,
+                    logical_height: full_height,
+                    pos_x: 0,
+                    pos_y: 0,
+                }]);
+            }
+
+            // Find min/max coordinates to compute total logical desktop size.
+            struct OutputGeom {
+                pos_x: i32,
+                pos_y: i32,
+                log_w: u32,
+                log_h: u32,
+                name: String,
+            }
+            let mut min_x = i32::MAX;
+            let mut min_y = i32::MAX;
+            let mut max_x = i32::MIN;
+            let mut max_y = i32::MIN;
+            let mut geoms: Vec<OutputGeom> = Vec::with_capacity(n);
+
+            for output in &wl_outputs {
+                if let Some(info) = h.output_info(output) {
+                    let (px, py) = info.location;
+                    let (lw, lh) = info
+                        .logical_size
+                        .unwrap_or((px + 1920, py + 1080)); // fallback guess
+                    let (luw, luh) = (lw.max(0).cast_unsigned(), lh.max(0).cast_unsigned());
+
+                    min_x = min_x.min(px);
+                    min_y = min_y.min(py);
+                    max_x = max_x.max(px + lw);
+                    max_y = max_y.max(py + lh);
+
+                    geoms.push(OutputGeom {
+                        pos_x: px,
+                        pos_y: py,
+                        log_w: luw,
+                        log_h: luh,
+                        name: info.name.unwrap_or_else(|| format!("monitor-{}", geoms.len())),
+                    });
+                }
+            }
+
+            let total_logical_w = (max_x - min_x).max(1).cast_unsigned();
+            let total_logical_h = (max_y - min_y).max(1).cast_unsigned();
+
+            // Scale factor: screenshot pixels per logical coordinate.
+            let scale_x = f64::from(full_width) / f64::from(total_logical_w);
+            let scale_y = f64::from(full_height) / f64::from(total_logical_h);
+
+            eprintln!(
+                "[capture]   desktop logical {}x{} (min {}/{}) screenshot {}x{} → scale {:.3}x{:.3}",
+                total_logical_w, total_logical_h,
+                min_x, min_y,
+                full_width, full_height,
+                scale_x, scale_y,
+            );
+
+            let mut results: Vec<CapturedOutput> = Vec::with_capacity(geoms.len());
+
+            for g in &geoms {
+                            // Crop region in screenshot pixel coordinates.
+                            let crop_x = (f64::from(g.pos_x - min_x) * scale_x).round() as u32;
+                            let crop_y = (f64::from(g.pos_y - min_y) * scale_y).round() as u32;
+                            let crop_w = (f64::from(g.log_w) * scale_x).round() as u32;
+                            let crop_h = (f64::from(g.log_h) * scale_y).round() as u32;
+
+                // Clamp to image bounds.
+                let crop_w = crop_w.min(full_width.saturating_sub(crop_x));
+                let crop_h = crop_h.min(full_height.saturating_sub(crop_y));
+
+                if crop_w == 0 || crop_h == 0 {
+                    eprintln!("[capture]   SKIP {}: zero-sized crop {}x{}", g.name, crop_w, crop_h);
+                    continue;
+                }
+
                 eprintln!(
-                    "[capture]   Handle::from_rgba for '{}` took {:?}",
-                    info.name,
-                    t_handle.elapsed(),
+                    "[capture]   crop {}: logical={}x{} @({},{}) → pixel={}x{} @({},{})",
+                    g.name,
+                    g.log_w, g.log_h,
+                    g.pos_x, g.pos_y,
+                    crop_w, crop_h,
+                    crop_x, crop_y,
+                );
+
+                let cropped: RgbaImage = image::imageops::crop_imm(
+                    &full_rgba,
+                    crop_x,
+                    crop_y,
+                    crop_w,
+                    crop_h,
+                )
+                .to_image();
+
+                let handle = cosmic::widget::image::Handle::from_rgba(
+                    crop_w,
+                    crop_h,
+                    cropped.clone().into_vec(),
                 );
 
                 results.push(CapturedOutput {
-                    name: info.name.clone(),
-                    rgba,
+                    name: g.name.clone(),
+                    rgba: cropped,
                     image_handle: handle,
-                    width: shm_img.width,
-                    height: shm_img.height,
-                    logical_width: info.logical_width,
-                    logical_height: info.logical_height,
-                    pos_x: info.pos_x,
-                    pos_y: info.pos_y,
+                    width: crop_w,
+                    height: crop_h,
+                    logical_width: g.log_w,
+                    logical_height: g.log_h,
+                    pos_x: g.pos_x,
+                    pos_y: g.pos_y,
                 });
             }
 
+            eprintln!("[capture]   produced {} per-output CapturedOutput(s)", results.len());
             Ok(results) as Result<Vec<CapturedOutput>, anyhow::Error>
         }));
 
@@ -139,169 +277,13 @@ pub async fn capture_all_outputs() -> Result<(Vec<CapturedOutput>, Option<String
         let _ = tx.send(result);
     });
 
-    let result = rx.await.map_err(|_| anyhow::anyhow!("Capture thread was cancelled"))?;
+    let result = rx
+        .await
+        .map_err(|_| anyhow::anyhow!("Capture thread was cancelled"))?;
     let captured = result?;
 
     eprintln!(
-            "[capture] === Capture finished: {} output(s) in {:?} ===",
-            captured.len(),
-            t_start.elapsed(),
-        );
-
-        Ok((captured, new_restore_token))
-}
-
-// ---------------------------------------------------------------------------
-// Two-phase capture — negotiate portal session ahead of time, grab frames
-// later when it's safe to do so.
-// ---------------------------------------------------------------------------
-
-/// Metadata plus a negotiated-but-not-yet-captured session for one output.
-/// Produced by [`prepare_all_outputs`], consumed by [`finish_all_outputs`].
-pub struct PreparedOutputCapture {
-    name: String,
-    pos_x: i32,
-    pos_y: i32,
-    logical_width: u32,
-    logical_height: u32,
-    prepared: PreparedCapture,
-}
-
-/// Negotiate a portal `ScreenCast` session for all outputs, without grabbing
-/// any frames yet.
-///
-/// This is the slow, round-trip-heavy part of a capture (D-Bus calls).  It
-/// does not depend on what is currently visible on screen, so it is safe to
-/// run concurrently with other UI transitions (e.g. closing a popup).  Call
-/// [`finish_all_outputs`] once it is actually safe to capture pixels.
-#[allow(clippy::missing_errors_doc)]
-pub async fn prepare_all_outputs() -> Result<(Vec<PreparedOutputCapture>, Option<String>), anyhow::Error> {
-    let h = helper();
-    let t_start = std::time::Instant::now();
-    eprintln!("[capture] === Preparing portal capture sessions ===");
-
-    let wl_outputs = h.outputs();
-    let n = wl_outputs.len();
-    eprintln!("[capture] {n} output(s) from CaptureHelper state");
-
-    if n == 0 {
-        return Err(anyhow::anyhow!("No Wayland outputs found"));
-    }
-
-    let (prepared, new_restore_token) = capture::portal_prepare_all(h, None).await?;
-
-        let results: Vec<PreparedOutputCapture> = prepared
-        .into_iter()
-        .map(|(prep, info)| {
-            eprintln!("[capture]   Prepared output '{}' node={}", info.name, prep.node_id);
-
-            PreparedOutputCapture {
-                name: info.name,
-                pos_x: info.pos_x,
-                pos_y: info.pos_y,
-                logical_width: info.logical_width,
-                logical_height: info.logical_height,
-                prepared: prep,
-            }
-        })
-        .collect();
-
-    eprintln!(
-            "[capture] === Prepare finished: {} output(s) in {:?} ===",
-            results.len(),
-            t_start.elapsed(),
-        );
-
-        Ok((results, new_restore_token))
-}
-
-/// Finish captures previously started with [`prepare_all_outputs`]: connect
-/// to `PipeWire` and grab the actual frame for each output.
-///
-/// This should be fast since all portal D-Bus negotiation already happened
-/// in [`prepare_all_outputs`].
-#[allow(clippy::missing_errors_doc)]
-pub async fn finish_all_outputs(
-    prepared: Vec<PreparedOutputCapture>,
-) -> Result<Vec<CapturedOutput>, anyhow::Error> {
-    let t_start = std::time::Instant::now();
-    let n = prepared.len();
-    eprintln!("[capture] === Finishing capture for {n} prepared output(s) ===");
-
-    // Convert to the format pipewire_finish_all expects.
-    let pw_prepared: Vec<(PreparedCapture, PortalOutputInfo)> = prepared
-        .iter()
-        .map(|p| {
-            let info = PortalOutputInfo {
-                name: p.name.clone(),
-                pos_x: p.pos_x,
-                pos_y: p.pos_y,
-                logical_width: p.logical_width,
-                logical_height: p.logical_height,
-            };
-            // Clone the PreparedCapture (Arc clone for session).
-            let prep = PreparedCapture {
-                session: p.prepared.session.clone(),
-                node_id: p.prepared.node_id,
-                width: p.prepared.width,
-                height: p.prepared.height,
-            };
-            (prep, info)
-        })
-        .collect();
-
-    let (tx, rx) = oneshot::channel();
-
-    std::thread::spawn(move || {
-        let captured_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let shm_images = capture::pipewire_finish_all(&pw_prepared)
-                .map_err(|e| anyhow::anyhow!("PipeWire capture failed: {e}"))?;
-
-            let mut results: Vec<CapturedOutput> = Vec::with_capacity(shm_images.len());
-                        for (p, (shm_img, info)) in
-                            prepared.iter().zip(shm_images) {
-                            let rgba: RgbaImage = shm_img.image_transformed()
-                    .map_err(|e| anyhow::anyhow!("image_transformed failed: {e}"))?;
-
-                let handle = cosmic::widget::image::Handle::from_rgba(
-                    rgba.width(),
-                    rgba.height(),
-                    rgba.clone().into_vec(),
-                );
-
-                results.push(CapturedOutput {
-                    name: info.name.clone(),
-                    rgba,
-                    image_handle: handle,
-                    width: shm_img.width,
-                    height: shm_img.height,
-                    logical_width: p.logical_width,
-                    logical_height: p.logical_height,
-                    pos_x: p.pos_x,
-                    pos_y: p.pos_y,
-                });
-            }
-
-            Ok(results) as Result<Vec<CapturedOutput>, anyhow::Error>
-        }));
-
-        let result = match captured_result {
-            Ok(Ok(outputs)) => Ok(outputs),
-            Ok(Err(e)) => Err(e),
-            Err(panic) => {
-                let msg = panic_message(panic);
-                eprintln!("[capture] FINISH THREAD PANICKED: {msg}");
-                Err(anyhow::anyhow!("Finish thread panicked: {msg}"))
-            }
-        };
-        let _ = tx.send(result);
-    });
-
-    let result = rx.await.map_err(|_| anyhow::anyhow!("Finish thread was cancelled"))?;
-    let captured = result?;
-
-    eprintln!(
-        "[capture] === Finish complete: {} output(s) in {:?} ===",
+        "[capture] === Screenshot capture finished: {} output(s) in {:?} ===",
         captured.len(),
         t_start.elapsed(),
     );
