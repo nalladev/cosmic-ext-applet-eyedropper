@@ -1,20 +1,25 @@
 # Eyedropper
 
-An eyedropper applet for the COSMIC™ desktop. Click the eyedropper icon in the panel, select a colour from anywhere on screen, and copy it as hex, RGB, or HSL.
-
-## Screenshot
+An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick any colour from your screen and copy it as hex, RGB, or HSL.
 
 ![Screenshot](https://github.com/nalladev/cosmic-ext-applet-eyedropper/raw/main/resources/screenshot.png)
+
+## Features
+
+- **Freeze mode** — click the applet, then click anywhere on screen to pick a colour
+- **Magnifier preview** — a zoomed-in view follows your cursor so you can see exactly which pixel you're selecting
+- **Multiple formats** — copy the picked colour as hex (`#ff0000`), RGB (`rgb(255, 0, 0)`), or HSL (`hsl(0, 100%, 50%)`)
+- **Popup with colour history** — the panel popup shows your last selection with quick-copy buttons
 
 ## Installation
 
 ### From a release
 
-Grab the `.deb`, `.rpm`, or tarball for your architecture from the [releases page](https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/latest).
+Download the `.deb`, `.rpm`, or tarball for your architecture from the [releases page](https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/latest).
 
 ```sh
 # Debian/Ubuntu/Pop!_OS
-sudo apt install --reinstall ./cosmic-ext-applet-eyedropper_*.deb
+sudo apt install ./cosmic-ext-applet-eyedropper_*.deb
 
 # Fedora
 sudo dnf install ./cosmic-ext-applet-eyedropper-*.rpm
@@ -25,46 +30,39 @@ cd cosmic-ext-applet-eyedropper
 ./install.sh
 ```
 
-Then restart the panel with `pkill cosmic-panel` and add the applet.
+Then restart the panel and add the applet:
+
+```sh
+pkill cosmic-panel
+```
+
+Open **Settings → Desktop → Panel → Applets** and enable **Eyedropper**.
 
 ### From source
 
 ```sh
 git clone https://github.com/nalladev/cosmic-ext-applet-eyedropper
 cd cosmic-ext-applet-eyedropper
-cargo build --release
+just build-release
 sudo just install
-pkill cosmic-panel
 ```
 
-Then right-click the panel → **Add Applet** → find **Eyedropper**.
-
-### Dependencies
-
-- Rust (edition 2024, MSRV 1.85+)
-- [just](https://github.com/casey/just) (`sudo apt install just`)
+Then restart the panel (`pkill cosmic-panel`) and add the applet from Settings.
 
 ## Development
 
 ```sh
-# Build and run standalone (for testing capture/picker flow)
-just run
-
-# Build release
-just
-
-# Install locally
-sudo just install
-
-# Restart the panel to pick up changes
-pkill cosmic-panel
-
-# Check for warnings
-just check
+just build-release     # Release build
+just build-debug       # Debug build
+just run               # Run standalone for testing
+sudo just install      # Install system-wide
+just check             # Run clippy lints
 ```
 
-The applet can be run standalone with `just run` for quick testing. When run from the panel, install it first with `sudo just install` then restart the panel.
+## Contributing
+
+Contributions are welcome. Feel free to open issues or submit pull requests.
 
 ## License
 
-MPL-2.0
+[MPL-2.0](LICENSE)
