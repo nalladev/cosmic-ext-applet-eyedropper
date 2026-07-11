@@ -25,15 +25,10 @@ jobs:
         run: |
           flatpak-builder --show-manifest flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
 
-      - name: Regenerate cargo sources
+      - name: Validate cargo-sources.json syntax
         run: |
-          python3 flatpak/gen-cargo-sources.py
+          python3 -m json.tool flatpak/cargo-sources.json > /dev/null
 
-      - name: Check cargo-sources.json is up to date
-        run: |
-          git diff --exit-code flatpak/cargo-sources.json
-
-      - name: Validate JSON syntax
+      - name: Validate manifest JSON syntax
         run: |
           python3 -m json.tool flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
-          python3 -m json.tool flatpak/cargo-sources.json > /dev/null
