@@ -11,7 +11,7 @@ use crate::picker::PickerController;
 use crate::widget::keyboard_wrapper::KeyboardWrapper;
 use cosmic::{
     applet::{menu_button, padded_control},
-    cosmic_config::{self, CosmicConfigEntry},
+    cosmic_config::{self, ConfigSet, CosmicConfigEntry},
     cosmic_theme::Spacing,
     iced::{
         Alignment, Border, ContentFit, Event, Length, Limits, Subscription,
@@ -206,9 +206,11 @@ pub struct AppModel {
     /// The popup id.
     popup: Option<Id>,
     /// Configuration data that persists between application runs.
-    config: Config,
+        config: Config,
+        /// cosmic_config context for writing configuration changes.
+        config_context: cosmic_config::Config,
 
-    // ── Eyedropper / colour-picker state ────────────────────────────
+        // ── Eyedropper / colour-picker state ────────────────────────────
     /// The most recently sampled colour (if any).
     sampled: Option<Color>,
     /// Error message, if something went wrong.
@@ -246,10 +248,12 @@ pub struct AppModel {
     /// (slower) single-shot capture once the popup is confirmed closed.
     sessions_prepare_failed: bool,
     /// Set once the popup is confirmed closed while entering picker mode —
-    /// i.e. we're just waiting on `prepared_sessions` / `sessions_prepare_failed`
-    /// before starting the final capture.
-    popup_confirmed_for_picker: bool,
-    /// Hand-off slot for the (non-`Clone`) prepared sessions produced by the
+        /// i.e. we're just waiting on `prepared_sessions` / `sessions_prepare_failed`
+        /// before starting the final capture.
+        popup_confirmed_for_picker: bool,
+        /// New restore token from the portal session, to be stored in config.
+        new_restore_token: Option<String>,
+        /// Hand-off slot for the (non-`Clone`) prepared sessions produced by the
     /// `prepare_all_outputs` background task.  The task writes into this
     /// slot and emits the lightweight `Message::SessionsPrepared`; the
     /// handler then `take()`s the value out into `prepared_sessions`.
@@ -284,16 +288,19 @@ pub enum Message {
     /// The eyedropper button was clicked in the popup.
     EyedropperClicked,
     /// Raw captured output data is ready.
-    CaptureCompleted(Vec<CapturedOutput>),
-    /// The capture failed with an error message.
+        CaptureCompleted(Vec<CapturedOutput>, Option<String>),
+        /// The capture failed with an error message.
     CaptureFailed(String),
     /// Capture sessions have been negotiated (formats + buffers ready) for
-    /// all outputs.  The actual prepared data is handed off out-of-band
-    /// (see `prepared_sessions_slot`) since it isn't `Clone`.
-    SessionsPrepared,
-    /// Session negotiation failed; fall back to the single-shot capture
-    /// pipeline once the popup is confirmed closed.
-    SessionsPrepareFailed(String),
+        /// all outputs.  The actual prepared data is handed off out-of-band
+        /// (see `prepared_sessions_slot`) since it isn't `Clone`.
+        #[allow(dead_code)]
+        SessionsPrepared,
+        /// Session negotiation finished with a new restore token.
+        SessionsPreparedWithToken(Option<String>),
+        /// Session negotiation failed; fall back to the single-shot capture
+        /// pipeline once the popup is confirmed closed.
+        SessionsPrepareFailed(String),
 
     // ── Wayland output tracking ─────────────────────────────────────
     OutputEvent(Box<OutputEvent>, WlOutput),
@@ -346,17 +353,23 @@ impl cosmic::Application for AppModel {
             core: cosmic::Core,
             _flags: Self::Flags,
         ) -> (Self, Task<cosmic::Action<Self::Message>>) {
-            let config_entry = cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
-                .map(|context| match Config::get_entry(&context) {
-                    Ok(config) => config,
-                    Err((_errors, config)) => config,
-                })
-                .unwrap_or_default();
+            let config_context = cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
+                            .map(|context| match Config::get_entry(&context) {
+                                Ok(config) => (context, config),
+                                Err((_errors, config)) => (context, config),
+                            })
+                            .unwrap_or_else(|_| {
+                                                            let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
+                                                            (ctx, Config::default())
+                                                        });
+
+                        let (config_context, config_entry) = config_context;
 
             let app = AppModel {
-                core,
-                config: config_entry,
-                popup: None,
+                            core,
+                            config: config_entry,
+                            config_context,
+                            popup: None,
                 sampled: None,
                 error: None,
                 hex: String::new(),
@@ -368,7 +381,8 @@ impl cosmic::Application for AppModel {
                 prepared_sessions: None,
                 sessions_prepare_failed: false,
                 popup_confirmed_for_picker: false,
-                prepared_sessions_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                                new_restore_token: None,
+                                prepared_sessions_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
                 pending_overlay_ids: Vec::new(),
                 copied_target: None,
                 copied_at: None,
@@ -612,24 +626,24 @@ impl cosmic::Application for AppModel {
 
                     // 2. Start session negotiation (slow) concurrently.
                     let slot = self.prepared_sessions_slot.clone();
-                    let prepare_task = Task::perform(
-                        async move {
-                            match picker::prepare_all_outputs().await {
-                                Ok(prepared) => {
-                                    *slot.lock().unwrap() = Some(prepared);
-                                    Ok(())
-                                }
-                                Err(e) => Err(e.to_string()),
-                            }
-                        },
-                        |result: Result<(), String>| {
-                            let msg = match result {
-                                Ok(()) => Message::SessionsPrepared,
-                                Err(e) => Message::SessionsPrepareFailed(e),
-                            };
-                            cosmic::Action::App(msg)
-                        },
-                    );
+                                        let prepare_task = Task::perform(
+                                            async move {
+                                                match picker::prepare_all_outputs().await {
+                                                    Ok((prepared, new_token)) => {
+                                                        *slot.lock().unwrap() = Some(prepared);
+                                                        Ok(new_token)
+                                                    }
+                                                    Err(e) => Err(e.to_string()),
+                                                }
+                                            },
+                                            |result: Result<Option<String>, String>| {
+                                                let msg = match result {
+                                                    Ok(new_token) => Message::SessionsPreparedWithToken(new_token),
+                                                    Err(e) => Message::SessionsPrepareFailed(e),
+                                                };
+                                                cosmic::Action::App(msg)
+                                                                        },
+                                                                    );
 
                     // All three happen concurrently: overlays appear (transparent),
                     // popup disappears, and session negotiation runs in background.
@@ -643,18 +657,27 @@ impl cosmic::Application for AppModel {
                 eprintln!("[picker]   popup was already closed — starting capture immediately.");
                 return Task::perform(
                     picker::capture_all_outputs(),
-                    |result| {
-                        let msg = match result {
-                            Ok(outputs) => Message::CaptureCompleted(outputs),
-                            Err(e) => Message::CaptureFailed(e.to_string()),
-                        };
-                        cosmic::Action::App(msg)
-                    },
-                );
-            }
+                                        |result| {
+                                            let msg = match result {
+                                                Ok((outputs, new_token)) => Message::CaptureCompleted(outputs, new_token),
+                                                Err(e) => Message::CaptureFailed(e.to_string()),
+                                            };
+                                            cosmic::Action::App(msg)
+                                        },
+                                    );
+                                }
 
-            // ── Capture completed successfully ──────────────────────────
-            Message::CaptureCompleted(captures) => {
+                                // ── Capture completed successfully ──────────────────────────
+                                Message::CaptureCompleted(captures, new_restore_token) => {
+                                                // Persist restore_token for next session
+                                                                if let Some(token) = new_restore_token {
+                    eprintln!("[picker] Got restore_token: {token:?}");
+                                                                    self.config.restore_token = Some(token.clone());
+                                                                    let txn = self.config_context.transaction();
+                                                                    let _ = txn.set("restore_token", token);
+                                                                    if let Err(e) = txn.commit() { eprintln!("[picker] Failed to save restore_token: {e}"); } else { eprintln!("[picker] Stored restore_token in config"); }
+                                                                    eprintln!("[picker] Stored restore_token in config");
+                                                                }
                 let t_capture = std::time::Instant::now();
                 eprintln!("[picker] CaptureCompleted — {} outputs", captures.len());
                 for cap in &captures {
@@ -936,9 +959,17 @@ impl cosmic::Application for AppModel {
             }
 
             // ── Pre-created overlay acknowledged by compositor ─────────
-            Message::OverlayCreated(id) => {
-                eprintln!("[picker] OverlayCreated({id:?}) — overlay surface ready");
-            }
+                        Message::OverlayCreated(id) => {
+                            eprintln!("[picker] OverlayCreated({id:?}) — overlay surface ready");
+                        }
+                        Message::SessionsPreparedWithToken(new_token) => {
+                            self.new_restore_token = new_token;
+                            let prepared = self.prepared_sessions_slot.lock().unwrap().take();
+                            eprintln!("[picker] SessionsPreparedWithToken — {} output(s) ready",
+                                prepared.as_ref().map_or(0, std::vec::Vec::len));
+                            self.prepared_sessions = prepared;
+                            return self.maybe_start_final_capture();
+                        }
         }
 
         Task::none()
@@ -1273,28 +1304,29 @@ impl AppModel {
         }
 
         if let Some(prepared) = self.prepared_sessions.take() {
-            self.popup_confirmed_for_picker = false;
-            eprintln!("[picker]   sessions ready — starting final (fast) capture.");
-            return Task::perform(picker::finish_all_outputs(prepared), |result| {
-                let msg = match result {
-                    Ok(outputs) => Message::CaptureCompleted(outputs),
-                    Err(e) => Message::CaptureFailed(e.to_string()),
-                };
-                cosmic::Action::App(msg)
-            });
+                            self.popup_confirmed_for_picker = false;
+                            eprintln!("[picker]   sessions ready — starting final (fast) capture.");
+                            let new_token = self.new_restore_token.take();
+                            return Task::perform(picker::finish_all_outputs(prepared), move |result| {
+                                    let msg = match result {
+                                        Ok(outputs) => Message::CaptureCompleted(outputs, new_token),
+                                        Err(e) => Message::CaptureFailed(e.to_string()),
+                                    };
+                                    cosmic::Action::App(msg)
+                                });
         }
 
         if self.sessions_prepare_failed {
-            self.popup_confirmed_for_picker = false;
-            self.sessions_prepare_failed = false;
-            eprintln!("[picker]   sessions failed — falling back to single-shot capture.");
-            return Task::perform(picker::capture_all_outputs(), |result| {
-                let msg = match result {
-                    Ok(outputs) => Message::CaptureCompleted(outputs),
-                    Err(e) => Message::CaptureFailed(e.to_string()),
-                };
-                cosmic::Action::App(msg)
-            });
+                            self.popup_confirmed_for_picker = false;
+                            self.sessions_prepare_failed = false;
+                            eprintln!("[picker]   sessions failed — falling back to single-shot capture.");
+                                                        return Task::perform(picker::capture_all_outputs(), move |result| {
+                                                                        let msg = match result {
+                                                                            Ok((outputs, new_token)) => Message::CaptureCompleted(outputs, new_token),
+                                                                            Err(e) => Message::CaptureFailed(e.to_string()),
+                                                                        };
+                                                                        cosmic::Action::App(msg)
+                                                                    });
         }
 
         // Popup is closed but sessions aren't ready or failed yet — wait for

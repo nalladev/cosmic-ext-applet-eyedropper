@@ -12,3 +12,6 @@
 11. ~~GitHub Pages + Aptly/ how does other applets ship/distribute?~~ (done: research — GitHub Releases + deb/rpm/tarball already in place ✓; **highest-impact missing piece: submit Flatpak manifest to pop-os/cosmic-flatpak for COSMIC Store discovery**; GitHub Pages + custom Flatpak repo only useful for independent update channel (next-meeting does this but adds maintenance); Aptly is overkill for a single applet; Flathub is for apps not applets; Arch AUR is community-maintained not self-hosted. Recommendation: prioritize Flatpak manifest for cosmic-flatpak, skip GitHub Pages/Aptly.)
 
 12. the magnifier circle has overflow of the content inside the small pixels on the edge are seen outside the circle. also at the edege of the circle i think we need i more layer of pixels because there is dark empty region inside the circle like there is no pixel.
+
+
+13. after rewrite check the git diff and compare with old code see if anything redundant still there. check that our code will work as flatpk no native system service used. only things that will work in sandboxed flatpak.

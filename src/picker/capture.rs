@@ -2,69 +2,44 @@
 
 //! Persistent Wayland capture helper.
 //!
-//! This module is a faithful copy of the architecture from
-//! `xdg-desktop-portal-cosmic`'s `src/wayland/mod.rs`.
-//!
-//! Instead of creating a fresh Wayland connection per capture, we maintain a
-//! persistent connection with a dedicated background dispatch thread.  Capture
-//! sessions are created on this connection and results are synchronised back
-//! via condvars for blocking waits.
+//! Uses the XDG Desktop Portal `ScreenCast` API + `PipeWire` for capture.
+//! This works in both native and Flatpak builds, unlike the previous
+//! `ext-image-copy-capture-v1` approach which failed in the sandbox.
 
 use std::collections::HashMap;
-use std::os::fd::{AsFd, OwnedFd};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::os::fd::OwnedFd;
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
-use cosmic::cctk::screencopy::{
-    CaptureFrame, CaptureOptions, CaptureSession as CtkSession, Capturer,
-    FailureReason, Formats, Frame, ScreencopyFrameData, ScreencopyFrameDataExt,
-    ScreencopyHandler, ScreencopySessionData, ScreencopySessionDataExt, ScreencopyState,
-};
 use cosmic::cctk::sctk::output::{OutputHandler, OutputInfo, OutputState};
 use cosmic::cctk::sctk::registry::{ProvidesRegistryState, RegistryState};
 use cosmic::cctk::sctk::shm::{Shm, ShmHandler};
-use cosmic::cctk::sctk::{self};
+use cosmic::cctk::sctk;
 use cosmic::cctk::wayland_client::{
-    Connection, Dispatch, Proxy, QueueHandle, WEnum,
+    Connection, QueueHandle,
     globals::registry_queue_init,
-    protocol::{wl_buffer, wl_output, wl_shm, wl_shm_pool},
+    protocol::wl_output,
 };
 use image::RgbaImage;
 
-pub use cosmic::cctk::screencopy::{CaptureSource, Rect};
-
 // ---------------------------------------------------------------------------
-// memfd creation (copied from portal's src/buffer.rs)
-// ---------------------------------------------------------------------------
-
-fn create_memfd(width: u32, height: u32) -> OwnedFd {
-    let name = c"pipewire-screencopy";
-    let fd =
-        rustix::fs::memfd_create(name, rustix::fs::MemfdFlags::CLOEXEC).expect("memfd_create");
-    rustix::fs::ftruncate(&fd, (u64::from(width) * u64::from(height) * 4) as _).expect("ftruncate");
-    fd
-}
-
-// ---------------------------------------------------------------------------
-// CaptureHelper – persistent Wayland connection with background dispatch
+// CaptureHelper – persistent Wayland connection for output discovery only
 // ---------------------------------------------------------------------------
 
 /// A persistent helper that owns a dedicated Wayland connection and dispatch
-/// thread for the lifetime of the applet.  All capture sessions are created
-/// on this connection.
+/// thread for output discovery.  Capture itself goes through the portal.
 #[derive(Clone)]
 pub struct CaptureHelper {
     inner: Arc<CaptureHelperInner>,
 }
 
 struct CaptureHelperInner {
+    #[allow(dead_code)]
     conn: Connection,
     outputs: Mutex<Vec<wl_output::WlOutput>>,
     output_infos: Mutex<HashMap<wl_output::WlOutput, OutputInfo>>,
+    #[allow(dead_code)]
     qh: QueueHandle<AppData>,
-    capturer: Capturer,
-    wl_shm: wl_shm::WlShm,
 }
 
 impl Default for CaptureHelper {
@@ -74,20 +49,13 @@ impl Default for CaptureHelper {
 }
 
 impl CaptureHelper {
-    /// Connect to the Wayland compositor, bind globals, discover outputs, and
-    /// spawn a persistent dispatch thread.
+    /// Connect to the Wayland compositor, discover outputs, and spawn a
+    /// persistent dispatch thread for output tracking.
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
-        eprintln!(
-            "[capture] CaptureHelper::new() — creating persistent Wayland connection"
-        );
+        eprintln!("[capture] CaptureHelper::new() — Wayland connection for output discovery");
 
-        // Force a fresh Wayland socket connection by manually connecting to
-        // the socket file, ignoring WAYLAND_SOCKET fd inheritance.  When spawned
-        // by cosmic-panel, the environment may have WAYLAND_SOCKET set to the
-        // panel's own socket fd; reusing that shared connection causes the
-        // compositor to delay the first screencopy request by ~6.4 seconds.
         let wayland_display = std::env::var("WAYLAND_DISPLAY")
             .unwrap_or_else(|_| "wayland-1".to_string());
         let socket_path = format!(
@@ -105,7 +73,6 @@ impl CaptureHelper {
         let qh = event_queue.handle();
 
         let registry_state = RegistryState::new(&globals);
-        let screencopy_state = ScreencopyState::new(&globals, &qh);
         let shm_state = Shm::bind(&globals, &qh).expect("CaptureHelper: Shm::bind");
 
         let helper = CaptureHelper {
@@ -114,14 +81,11 @@ impl CaptureHelper {
                 outputs: Mutex::new(Vec::new()),
                 output_infos: Mutex::new(HashMap::new()),
                 qh: qh.clone(),
-                capturer: screencopy_state.capturer().clone(),
-                wl_shm: shm_state.wl_shm().clone(),
             }),
         };
 
         let mut data = AppData {
             registry_state,
-            screencopy_state,
             output_state: OutputState::new(&globals, &qh),
             shm_state,
             helper: helper.clone(),
@@ -134,15 +98,13 @@ impl CaptureHelper {
 
         let n_outputs = helper.inner.outputs.lock().unwrap().len();
         eprintln!(
-            "[capture] CaptureHelper initialized — {n_outputs} output(s) found, spawning dispatch thread"
+            "[capture] CaptureHelper initialized — {n_outputs} output(s), spawning dispatch thread"
         );
 
-        // Spawn the persistent dispatch thread (copied from portal).
+        // Spawn persistent dispatch thread for output tracking.
         thread::spawn(move || loop {
             if event_queue.blocking_dispatch(&mut data).is_err() {
-                eprintln!(
-                    "[capture] CaptureHelper dispatch thread: connection lost, exiting"
-                );
+                eprintln!("[capture] CaptureHelper dispatch thread: connection lost, exiting");
                 break;
             }
         });
@@ -172,379 +134,445 @@ impl CaptureHelper {
     fn set_output_info(&self, output: &wl_output::WlOutput, info: Option<OutputInfo>) {
         let mut map = self.inner.output_infos.lock().unwrap();
         match info {
-            Some(i) => {
-                map.insert(output.clone(), i);
-            }
-            None => {
-                map.remove(output);
-            }
+            Some(i) => { map.insert(output.clone(), i); }
+            None => { map.remove(output); }
         }
-    }
-
-    /// Create a capture session for the given source (copied from portal).
-    #[must_use]
-    #[allow(clippy::missing_panics_doc, clippy::needless_pass_by_value)]
-    pub fn capture_source_session(&self, source: CaptureSource) -> CaptureSession {
-        CaptureSession(Arc::new_cyclic(|weak_session| {
-            let options = CaptureOptions::empty();
-            let ctk_session = self
-                .inner
-                .capturer
-                .create_session(
-                    &source,
-                    options,
-                    &self.inner.qh,
-                    SessionData {
-                        session: weak_session.clone(),
-                        session_data: ScreencopySessionData::default(),
-                    },
-                )
-                .expect(
-                    "create_session failed — compositor does not support \
-                     ext-image-copy-capture-v1",
-                );
-            self.inner.conn.flush().unwrap();
-            CaptureSessionInner {
-                conn: self.inner.conn.clone(),
-                capture_session: ctk_session,
-                state: Mutex::new(SessionState::default()),
-                condvar: Condvar::new(),
-            }
-        }))
-    }
-
-    /// Negotiate a capture session and allocate a buffer for `source`,
-    /// without grabbing the actual frame yet.
-    ///
-    /// This is the slow, round-trip-heavy half of a capture (session
-    /// creation + format negotiation + buffer allocation).  It has no
-    /// dependency on what is currently on screen, so callers can run it
-    /// concurrently with other UI transitions (e.g. closing our popup) and
-    /// pay only for the fast [`Self::finish_capture_shm_blocking`] step once
-    /// it is actually safe to grab pixels.
-    #[must_use]
-    pub fn prepare_source_shm_blocking(&self, source: CaptureSource) -> Option<PreparedCapture> {
-        let session = self.capture_source_session(source);
-
-        // Wait for the compositor to send formats (BufferSize + ShmFormat + Done).
-        let formats = session.wait_for_formats_blocking()?;
-        let (width, height) = formats.buffer_size;
-
-        if width == 0 || height == 0 {
-            eprintln!(
-                "[capture] prepare_source_shm_blocking: compositor gave zero-sized buffer"
-            );
-            return None;
-        }
-
-        eprintln!(
-            "[capture] prepare_source_shm_blocking: {width}x{height} format=Abgr8888",
-        );
-
-        // Create memfd and SHM buffer (copied from portal's create_shm_buffer).
-        let fd = create_memfd(width, height);
-        let buffer =
-            self.create_shm_buffer(&fd, width, height, width * 4, wl_shm::Format::Abgr8888);
-
-        Some(PreparedCapture {
-            session,
-            buffer,
-            width,
-            height,
-            fd,
-        })
-    }
-
-    /// Finish a capture previously started with
-    /// [`Self::prepare_source_shm_blocking`]: grab the actual frame and
-    /// block until the compositor signals Ready / Failed.
-    ///
-    /// This should be fast (roughly one compositor frame) since all the
-    /// slow negotiation already happened in the `prepare` step.
-    #[must_use]
-    #[allow(clippy::cast_possible_wrap)]
-    pub fn finish_capture_shm_blocking(&self, prepared: PreparedCapture) -> Option<ShmImage> {
-        let PreparedCapture {
-            session,
-            buffer,
-            width,
-            height,
-            fd,
-        } = prepared;
-
-        // Full damage rect (copied from portal — empty damage is incorrect).
-        let damage = &[Rect {
-            x: 0,
-            y: 0,
-            width: width as i32,
-            height: height as i32,
-        }];
-
-        // Capture and wait for Ready / Failed.
-        let res = session.capture_wl_buffer_blocking(&buffer, damage, &self.inner.qh);
-        buffer.destroy();
-
-        match res {
-            Ok(frame) => {
-                let transform = match frame.transform {
-                    WEnum::Value(t) => t,
-                    WEnum::Unknown(v) => {
-                        eprintln!(
-                            "[capture] unknown transform code {v}, assuming Normal",
-                        );
-                        wl_output::Transform::Normal
-                    }
-                };
-                Some(ShmImage {
-                    fd,
-                    width,
-                    height,
-                    transform,
-                })
-            }
-            Err(reason) => {
-                eprintln!(
-                    "[capture] capture_wl_buffer_blocking failed: {reason:?}",
-                );
-                None
-            }
-        }
-    }
-
-    /// Capture a source to SHM, blocking until the frame is ready.
-    /// Equivalent to calling [`Self::prepare_source_shm_blocking`] followed
-    /// immediately by [`Self::finish_capture_shm_blocking`].  Kept for
-    /// call sites that don't need to overlap negotiation with other work.
-    #[must_use]
-    pub fn capture_source_shm_blocking(&self, source: CaptureSource) -> Option<ShmImage> {
-        let prepared = self.prepare_source_shm_blocking(source)?;
-        self.finish_capture_shm_blocking(prepared)
-    }
-
-    /// Create a `wl_buffer` from a memfd (copied from portal's `create_shm_buffer`).
-    ///
-    /// The pool is destroyed immediately after creating the buffer, matching
-    /// the portal's approach.
-    #[must_use]
-    #[allow(clippy::cast_possible_wrap)]
-    pub fn create_shm_buffer(
-        &self,
-        fd: &OwnedFd,
-        width: u32,
-        height: u32,
-        stride: u32,
-        format: wl_shm::Format,
-    ) -> wl_buffer::WlBuffer {
-        let pool = self.inner.wl_shm.create_pool(
-            fd.as_fd(),
-            (stride * height) as i32,
-            &self.inner.qh,
-            (),
-        );
-        let buffer = pool.create_buffer(
-            0,
-            width as i32,
-            height as i32,
-            stride as i32,
-            format,
-            &self.inner.qh,
-            (),
-        );
-        // Portal destroys the pool immediately — the buffer keeps a reference.
-        pool.destroy();
-        buffer
     }
 }
 
 // ---------------------------------------------------------------------------
-// PreparedCapture — a negotiated session + allocated buffer, ready for the
-// actual (fast) frame-grab step.
+// Portal output metadata (returned by prepare phase)
 // ---------------------------------------------------------------------------
 
-/// The result of [`CaptureHelper::prepare_source_shm_blocking`]: a capture
-/// session with formats negotiated and a buffer already allocated.
-///
-/// Only the (fast) [`CaptureHelper::finish_capture_shm_blocking`] step
-/// remains.  Splitting the capture this way lets callers overlap the slow
-/// negotiation with other async work (e.g. closing a popup) so that only
-/// the minimal, fast "grab the frame" step happens once it's actually safe
-/// to capture pixels — minimising any visible gap before the frozen overlay
-/// appears.
+/// Metadata for a captured output from the portal.
+pub struct PortalOutputInfo {
+    pub name: String,
+    pub pos_x: i32,
+    pub pos_y: i32,
+    pub logical_width: u32,
+    pub logical_height: u32,
+}
+
+// ---------------------------------------------------------------------------
+// PreparedCapture — portal session data ready for the fast PipeWire step.
+// ---------------------------------------------------------------------------
+
+/// Shared state from a portal `ScreenCast` session.
+pub(crate) struct PortalSession {
+    pipewire_fd: OwnedFd,
+}
+
+/// The result of the prepare phase: a portal session with `PipeWire` fd and
+/// per-stream info.  Only the (fast) `PipeWire` frame-grab step remains.
 pub struct PreparedCapture {
-    session: CaptureSession,
-    buffer: wl_buffer::WlBuffer,
-    width: u32,
-    height: u32,
-    fd: OwnedFd,
-}
-
-// ---------------------------------------------------------------------------
-// CaptureSession — per-capture session with blocking wait (copied from portal)
-// ---------------------------------------------------------------------------
-
-#[derive(Default)]
-struct SessionState {
-    formats: Option<Formats>,
-    stopped: bool,
-    wakers: Vec<std::task::Waker>,
-}
-
-struct CaptureSessionInner {
-    conn: Connection,
-    capture_session: CtkSession,
-    state: Mutex<SessionState>,
-    condvar: Condvar,
-}
-
-/// A single capture session that can block until the compositor responds.
-pub struct CaptureSession(Arc<CaptureSessionInner>);
-
-impl CaptureSession {
-    fn update<F: FnOnce(&mut SessionState)>(&self, f: F) {
-        let mut state = self.0.state.lock().unwrap();
-        f(&mut state);
-        for waker in std::mem::take(&mut state.wakers) {
-            waker.wake();
-        }
-        self.0.condvar.notify_all();
-    }
-
-    fn for_session(session: &CtkSession) -> Option<Self> {
-        session.data::<SessionData>()?.session.upgrade().map(Self)
-    }
-
-    /// Block until the compositor sends formats (`BufferSize` + `ShmFormat` + Done)
-    /// for this session.
-    fn wait_for_formats_blocking(&self) -> Option<Formats> {
-        let mut state = self.0.state.lock().unwrap();
-        loop {
-            if state.stopped {
-                return None;
-            }
-            if let Some(formats) = &state.formats {
-                return Some(formats.clone());
-            }
-            state = self.0.condvar.wait(state).unwrap();
-        }
-    }
-
-    /// Capture to a `wl_buffer`, blocking until Ready or Failed.
-    fn capture_wl_buffer_blocking(
-        &self,
-        buffer: &wl_buffer::WlBuffer,
-        buffer_damage: &[Rect],
-        qh: &QueueHandle<AppData>,
-    ) -> Result<Frame, WEnum<FailureReason>> {
-        let (sender, receiver) = std::sync::mpsc::channel();
-        self.0.capture_session.capture(
-            buffer,
-            buffer_damage,
-            qh,
-            FrameData {
-                frame_data: ScreencopyFrameData::default(),
-                sender: Mutex::new(Some(sender)),
-            },
-        );
-        self.0.conn.flush().ok();
-        match receiver.recv_timeout(Duration::from_secs(5)) {
-            Ok(result) => result,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout
-                | std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                Err(WEnum::Value(FailureReason::Stopped))
-            }
-        }
-    }
-
-    #[must_use]
-    #[allow(dead_code, clippy::missing_panics_doc)]
-    pub fn is_stopped(&self) -> bool {
-        self.0.state.lock().unwrap().stopped
-    }
-}
-
-// ---------------------------------------------------------------------------
-// ShmImage — captured frame data (copied from portal)
-// ---------------------------------------------------------------------------
-
-/// A single captured frame, stored as a memfd that can be mmap'd on demand.
-/// This exactly matches the portal's `ShmImage` struct.
-pub struct ShmImage {
-    pub fd: OwnedFd,
+    pub(crate) session: Arc<PortalSession>,
+    pub node_id: u32,
     pub width: u32,
     pub height: u32,
-    pub transform: wl_output::Transform,
+}
+
+// ---------------------------------------------------------------------------
+// ShmImage — captured frame data
+// ---------------------------------------------------------------------------
+
+/// A single captured frame as raw pixel data.
+pub struct ShmImage {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl ShmImage {
-    /// Read pixel data from the memfd via mmap and decode as an RGBA image.
+    /// Decode as an RGBA image.
     #[allow(clippy::missing_errors_doc)]
     pub fn image(&self) -> anyhow::Result<RgbaImage> {
-        let mmap = unsafe { memmap2::Mmap::map(&self.fd.as_fd())? };
-        RgbaImage::from_raw(self.width, self.height, mmap.to_vec())
+        RgbaImage::from_raw(self.width, self.height, self.pixels.clone())
             .ok_or_else(|| anyhow::anyhow!("ShmImage had incorrect size"))
     }
 
-    /// Like `image()` but applies the output transform (rotation / flip) so
-    /// the returned image always has `Normal` orientation.
+    /// Like `image()` but applies transform (no-op for portal/`PipeWire` data
+    /// which is already in correct orientation).
     #[allow(clippy::missing_errors_doc)]
     pub fn image_transformed(&self) -> anyhow::Result<RgbaImage> {
-        let mut dynamic = image::DynamicImage::from(self.image()?);
-        dynamic.apply_orientation(match self.transform {
-            wl_output::Transform::Normal => image::metadata::Orientation::NoTransforms,
-            wl_output::Transform::_90 => image::metadata::Orientation::Rotate90,
-            wl_output::Transform::_180 => image::metadata::Orientation::Rotate180,
-            wl_output::Transform::_270 => image::metadata::Orientation::Rotate270,
-            wl_output::Transform::Flipped => image::metadata::Orientation::FlipHorizontal,
-            wl_output::Transform::Flipped90 => image::metadata::Orientation::Rotate90FlipH,
-            wl_output::Transform::Flipped180 => image::metadata::Orientation::FlipVertical,
-            wl_output::Transform::Flipped270 => image::metadata::Orientation::Rotate270FlipH,
-            _ => unreachable!(),
+        self.image()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Portal + PipeWire capture functions (called from wayland.rs)
+// ---------------------------------------------------------------------------
+
+/// Create a portal `ScreenCast` session for all monitors and return
+/// the `PipeWire` fd + per-stream metadata.
+///
+/// This is the async, D-Bus-heavy part of a capture.  Run it in a
+/// `Task::perform` so it doesn't block the UI thread.
+#[allow(clippy::missing_errors_doc)]
+pub async fn portal_prepare_all(
+    helper: &CaptureHelper,
+    restore_token: Option<&str>,
+) -> Result<(Vec<(PreparedCapture, PortalOutputInfo)>, Option<String>), anyhow::Error> {
+    use ashpd::desktop::screencast::{CursorMode, Screencast, SourceType};
+    use ashpd::desktop::PersistMode;
+
+    eprintln!("[capture] portal_prepare_all: creating ScreenCast session");
+
+    let proxy = Screencast::new().await
+        .map_err(|e| anyhow::anyhow!("Screencast::new failed: {e}"))?;
+    let session = proxy.create_session().await
+        .map_err(|e| anyhow::anyhow!("create_session failed: {e}"))?;
+
+    proxy
+            .select_sources(
+                &session,
+                CursorMode::Hidden,
+                SourceType::Monitor.into(),
+                true, // multiple monitors
+                restore_token, // pass restore_token here for permission persistence
+                PersistMode::ExplicitlyRevoked,
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!("select_sources failed: {e}"))?;
+
+    let response = proxy.start(&session, None).await
+            .map_err(|e| anyhow::anyhow!("start failed: {e}"))?
+            .response()
+            .map_err(|e| anyhow::anyhow!("start response error: {e}"))?;
+
+        let restore_token = response.restore_token().map(std::string::ToString::to_string);
+                eprintln!("[capture] portal_prepare_all: got restore_token: {restore_token:?}");
+
+        let streams = response.streams();
+    eprintln!("[capture] portal_prepare_all: got {} stream(s)", streams.len());
+
+    let pw_fd = proxy.open_pipe_wire_remote(&session).await
+        .map_err(|e| anyhow::anyhow!("open_pipe_wire_remote failed: {e}"))?;
+
+    let session = Arc::new(PortalSession { pipewire_fd: pw_fd });
+
+    // Match portal streams to our discovered outputs by position.
+    let wl_outputs = helper.outputs();
+    let mut results = Vec::new();
+
+    for stream in streams {
+        let node_id = stream.pipe_wire_node_id();
+        let stream_pos = stream.position();
+        let stream_size = stream.size();
+
+        eprintln!(
+            "[capture]   stream node={node_id} pos={stream_pos:?} size={stream_size:?}"
+        );
+
+        // Find the matching Wayland output by position + size.
+        let matched = wl_outputs.iter().find_map(|o| {
+            let info = helper.output_info(o)?;
+            let (ox, oy) = info.location;
+            let (lw, lh) = info.logical_size.unwrap_or((0, 0));
+            let (sw, sh) = stream_size.unwrap_or((0, 0));
+
+            if ox == stream_pos.map_or(ox, |p| p.0)
+                            && oy == stream_pos.map_or(oy, |p| p.1)
+                            && lw == sw
+                            && lh == sh
+                        {
+                Some(info)
+            } else if wl_outputs.len() == 1 && lw == sw && lh == sh {
+                // Single monitor: match by size only.
+                Some(info)
+            } else {
+                None
+            }
         });
-        match dynamic {
-            image::DynamicImage::ImageRgba8(img) => Ok(img),
-            _ => unreachable!(
-                "image_transformed should always return Rgba8 after apply_orientation"
-            ),
+
+        let (sw, sh) = stream_size.unwrap_or((0, 0));
+        let width = u32::try_from(sw.max(0)).unwrap_or(0);
+                let height = u32::try_from(sh.max(0)).unwrap_or(0);
+
+        if width == 0 || height == 0 {
+            eprintln!("[capture]   SKIP: zero-sized stream");
+            continue;
+        }
+
+        let output_info = if let Some(info) = matched {
+            PortalOutputInfo {
+                name: info.name.clone().unwrap_or_default(),
+                pos_x: info.location.0,
+                pos_y: info.location.1,
+                logical_width: info.logical_size.map_or(width, |s| u32::try_from(s.0.max(0)).unwrap_or(0)),
+                                logical_height: info.logical_size.map_or(height, |s| u32::try_from(s.1.max(0)).unwrap_or(0)),
+            }
+        } else {
+            eprintln!("[capture]   WARNING: no matching output for stream, using stream metadata");
+            PortalOutputInfo {
+                name: format!("monitor-{}", results.len()),
+                pos_x: stream_pos.map_or(0, |p| p.0),
+                                pos_y: stream_pos.map_or(0, |p| p.1),
+                logical_width: width,
+                logical_height: height,
+            }
+        };
+
+        results.push((
+            PreparedCapture {
+                session: session.clone(),
+                node_id,
+                width,
+                height,
+            },
+            output_info,
+        ));
+    }
+
+    eprintln!("[capture] portal_prepare_all: prepared {} output(s)", results.len());
+        Ok((results, restore_token))
+    }
+
+/// Connect to `PipeWire` via the prepared fd and grab one frame per stream.
+///
+/// This is the fast part — all D-Bus negotiation happened in
+/// [`portal_prepare_all`].
+#[allow(clippy::missing_errors_doc)]
+pub fn pipewire_finish_all(
+    prepared: &[(PreparedCapture, PortalOutputInfo)],
+) -> Result<Vec<(ShmImage, PortalOutputInfo)>, anyhow::Error> {
+    use pipewire as pw;
+
+    if prepared.is_empty() {
+        return Err(anyhow::anyhow!("No prepared captures"));
+    }
+
+    eprintln!("[capture] pipewire_finish_all: connecting PipeWire for {} stream(s)", prepared.len());
+
+    // Initialize PipeWire (idempotent).
+    pw::init();
+
+    let mainloop = pw::main_loop::MainLoop::new(None)
+        .map_err(|e| anyhow::anyhow!("MainLoop::new failed: {e}"))?;
+    let context = pw::context::Context::new(&mainloop)
+        .map_err(|e| anyhow::anyhow!("Context::new failed: {e}"))?;
+
+    // Clone the fd for the PipeWire core connection.
+    let core_fd = prepared[0].0.session.pipewire_fd.try_clone()
+        .map_err(|e| anyhow::anyhow!("fd clone failed: {e}"))?;
+    let core = context.connect_fd(core_fd, None)
+        .map_err(|e| anyhow::anyhow!("connect_fd failed: {e}"))?;
+
+    let mut results = Vec::with_capacity(prepared.len());
+
+    for (prep, info) in prepared {
+        let node_id = prep.node_id;
+        let width = prep.width;
+        let height = prep.height;
+        eprintln!("[capture]   capturing stream node={node_id} {width}x{height}");
+
+        if let Some(shm) = capture_one_stream(&core, &mainloop, node_id, width, height) {
+            eprintln!("[capture]   stream '{}`: captured {}x{}", info.name, shm.width, shm.height);
+            results.push((shm, PortalOutputInfo {
+                name: info.name.clone(),
+                pos_x: info.pos_x,
+                pos_y: info.pos_y,
+                logical_width: info.logical_width,
+                logical_height: info.logical_height,
+            }));
+        } else {
+            eprintln!("[capture]   stream '{}': FAILED", info.name);
         }
     }
+
+    eprintln!("[capture] pipewire_finish_all: captured {}/{} stream(s)", results.len(), prepared.len());
+    Ok(results)
 }
 
-// ---------------------------------------------------------------------------
-// User-data types for the dispatch handlers (copied from portal)
-// ---------------------------------------------------------------------------
+/// Capture a single frame from one `PipeWire` stream.
+#[allow(clippy::too_many_lines)]
+fn capture_one_stream(
+    core: &pipewire::core::Core,
+    mainloop: &pipewire::main_loop::MainLoop,
+    node_id: u32,
+    width: u32,
+    height: u32,
+) -> Option<ShmImage> {
+    use pipewire as pw;
+    use pw::properties::properties;
+    use pw::spa;
 
-struct SessionData {
-    session: Weak<CaptureSessionInner>,
-    session_data: ScreencopySessionData,
-}
-
-impl ScreencopySessionDataExt for SessionData {
-    fn screencopy_session_data(&self) -> &ScreencopySessionData {
-        &self.session_data
+    struct StreamData {
+        format: spa::param::video::VideoInfoRaw,
+        frame_data: Option<Vec<u8>>,
+        frame_width: u32,
+        frame_height: u32,
+        done: bool,
     }
-}
 
-struct FrameData {
-    frame_data: ScreencopyFrameData,
-    #[allow(clippy::type_complexity)]
-    sender: Mutex<
-        Option<std::sync::mpsc::Sender<Result<Frame, WEnum<FailureReason>>>>
-    >,
-}
+    let data = Arc::new(Mutex::new(StreamData {
+        format: spa::param::video::VideoInfoRaw::default(),
+        frame_data: None,
+        frame_width: 0,
+        frame_height: 0,
+        done: false,
+    }));
 
-impl ScreencopyFrameDataExt for FrameData {
-    fn screencopy_frame_data(&self) -> &ScreencopyFrameData {
-        &self.frame_data
+    let stream = pw::stream::Stream::new(
+        core,
+        &format!("capture-{node_id}"),
+        properties! {
+            *pw::keys::MEDIA_TYPE => "Video",
+            *pw::keys::MEDIA_CATEGORY => "Capture",
+            *pw::keys::MEDIA_ROLE => "Screen",
+        },
+    )
+    .ok()?;
+
+    let data_clone = data.clone();
+    let _listener = stream
+        .add_local_listener_with_user_data(data_clone)
+        .state_changed(|_, _, old, new| {
+            eprintln!("[capture]     PipeWire state: {old:?} -> {new:?}");
+        })
+        .param_changed(|_, user_data, id, param| {
+            let Some(param) = param else {
+                return;
+            };
+            if id != pw::spa::param::ParamType::Format.as_raw() {
+                return;
+            }
+
+            let Ok((media_type, media_subtype)) = pw::spa::param::format_utils::parse_format(param) else { return };
+
+            if media_type != pw::spa::param::format::MediaType::Video
+                || media_subtype != pw::spa::param::format::MediaSubtype::Raw
+            {
+                return;
+            }
+
+            let mut d = user_data.lock().unwrap();
+            d.format.parse(param).ok();
+            eprintln!(
+                "[capture]     PipeWire format: {}x{}",
+                d.format.size().width,
+                d.format.size().height,
+            );
+        })
+        .process(|stream, user_data| {
+            match stream.dequeue_buffer() {
+                None => {
+                    eprintln!("[capture]     PipeWire: out of buffers");
+                }
+                Some(mut buffer) => {
+                    let datas = buffer.datas_mut();
+                    if datas.is_empty() {
+                        return;
+                    }
+                    let data = &mut datas[0];
+                    let chunk = data.chunk();
+                    let size = chunk.size() as usize;
+
+                    if let Some(slice) = data.data() {
+                        let mut d = user_data.lock().unwrap();
+                        let buf_size = d.format.size();
+                        d.frame_width = buf_size.width;
+                        d.frame_height = buf_size.height;
+                        d.frame_data = Some(slice[..size].to_vec());
+                        d.done = true;
+                        eprintln!("[capture]     PipeWire: got frame {} bytes, {}x{}",
+                            size, d.frame_width, d.frame_height);
+                    }
+                }
+            }
+        })
+        .register()
+        .ok()?;
+
+    // Negotiate format: ask for BGRx (common for screen capture).
+    let obj = pw::spa::pod::object!(
+        pw::spa::utils::SpaTypes::ObjectParamFormat,
+        pw::spa::param::ParamType::EnumFormat,
+        pw::spa::pod::property!(
+            pw::spa::param::format::FormatProperties::MediaType,
+            Id,
+            pw::spa::param::format::MediaType::Video
+        ),
+        pw::spa::pod::property!(
+            pw::spa::param::format::FormatProperties::MediaSubtype,
+            Id,
+            pw::spa::param::format::MediaSubtype::Raw
+        ),
+        pw::spa::pod::property!(
+            pw::spa::param::format::FormatProperties::VideoFormat,
+            Choice,
+            Enum,
+            Id,
+            pw::spa::param::video::VideoFormat::BGRx,
+            pw::spa::param::video::VideoFormat::BGRx,
+            pw::spa::param::video::VideoFormat::BGRA,
+            pw::spa::param::video::VideoFormat::RGBA,
+            pw::spa::param::video::VideoFormat::RGBx,
+        ),
+        pw::spa::pod::property!(
+            pw::spa::param::format::FormatProperties::VideoSize,
+            Choice,
+            Range,
+            Rectangle,
+            pw::spa::utils::Rectangle { width, height },
+            pw::spa::utils::Rectangle { width: 1, height: 1 },
+            pw::spa::utils::Rectangle { width: 7680, height: 4320 }
+        ),
+    );
+
+    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &pw::spa::pod::Value::Object(obj),
+    )
+    .ok()?
+    .0
+    .into_inner();
+
+    let mut params = [spa::pod::Pod::from_bytes(&values).unwrap()];
+
+    stream
+        .connect(
+            spa::utils::Direction::Input,
+            Some(node_id),
+            pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS,
+            &mut params,
+        )
+        .ok()?;
+
+    // Run the main loop until we get a frame (with timeout).
+    let data_ref = data.clone();
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(5);
+
+    loop {
+        if start.elapsed() > timeout {
+            eprintln!("[capture]     PipeWire: timeout waiting for frame");
+            break;
+        }
+        mainloop.loop_().iterate(std::time::Duration::from_millis(100));
+
+        let d = data_ref.lock().unwrap();
+        if d.done {
+            let pw = d.frame_data.clone();
+            let w = d.frame_width;
+            let h = d.frame_height;
+            drop(d);
+
+            if let Some(pixels) = pw {
+                eprintln!("[capture]     PipeWire: captured {w}x{h} ({} bytes)", pixels.len());
+                return Some(ShmImage { pixels, width: w, height: h });
+            }
+        }
     }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
-// AppData — implements all dispatch traits (copied from portal)
+// Wayland output tracking (unchanged from before, minus screencopy)
 // ---------------------------------------------------------------------------
 
 struct AppData {
     registry_state: RegistryState,
-    screencopy_state: ScreencopyState,
     output_state: OutputState,
     shm_state: Shm,
     helper: CaptureHelper,
@@ -621,94 +649,6 @@ impl OutputHandler for AppData {
     }
 }
 
-impl ScreencopyHandler for AppData {
-    fn screencopy_state(&mut self) -> &mut ScreencopyState {
-        &mut self.screencopy_state
-    }
-
-    fn init_done(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<AppData>,
-        session: &CtkSession,
-        formats: &Formats,
-    ) {
-        if let Some(s) = CaptureSession::for_session(session) {
-            s.update(|data| {
-                data.formats = Some(formats.clone());
-            });
-        }
-    }
-
-    fn stopped(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<AppData>,
-        session: &CtkSession,
-    ) {
-        if let Some(s) = CaptureSession::for_session(session) {
-            s.update(|data| {
-                data.stopped = true;
-            });
-        }
-    }
-
-    fn ready(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<AppData>,
-        screencopy_frame: &CaptureFrame,
-        frame: Frame,
-    ) {
-        if let Some(sender) = screencopy_frame
-            .data::<FrameData>()
-            .and_then(|data| data.sender.lock().unwrap().take())
-        {
-            let _ = sender.send(Ok(frame));
-        }
-    }
-
-    fn failed(
-        &mut self,
-        _conn: &Connection,
-        _qh: &QueueHandle<AppData>,
-        screencopy_frame: &CaptureFrame,
-        reason: WEnum<FailureReason>,
-    ) {
-        if let Some(sender) = screencopy_frame
-            .data::<FrameData>()
-            .and_then(|data| data.sender.lock().unwrap().take())
-        {
-            let _ = sender.send(Err(reason));
-        }
-    }
-}
-
-/// Required for protocol objects not covered by the delegation macros.
-impl Dispatch<wl_buffer::WlBuffer, (), AppData> for AppData {
-    fn event(
-        _: &mut AppData,
-        _: &wl_buffer::WlBuffer,
-        _: <wl_buffer::WlBuffer as Proxy>::Event,
-        (): &(),
-        _: &Connection,
-        _: &QueueHandle<AppData>,
-    ) {
-    }
-}
-
-impl Dispatch<wl_shm_pool::WlShmPool, (), AppData> for AppData {
-    fn event(
-        _: &mut AppData,
-        _: &wl_shm_pool::WlShmPool,
-        _: <wl_shm_pool::WlShmPool as Proxy>::Event,
-        (): &(),
-        _: &Connection,
-        _: &QueueHandle<AppData>,
-    ) {
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Delegation macros
 // ---------------------------------------------------------------------------
@@ -716,4 +656,3 @@ impl Dispatch<wl_shm_pool::WlShmPool, (), AppData> for AppData {
 sctk::delegate_registry!(AppData);
 sctk::delegate_output!(AppData);
 sctk::delegate_shm!(AppData);
-cosmic::cctk::delegate_screencopy!(AppData);

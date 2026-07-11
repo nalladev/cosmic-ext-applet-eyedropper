@@ -1,0 +1,20 @@
+Committing stage finish to cache
+Exporting io.github.nalladev.CosmicExtAppletEyedropper to repo
+WARNING: Failed to validate desktop file /home/joel/Documents/Projects/cosmic-ext-applet-eyedropper/build-dir/export/share/applications/io.github.nalladev.CosmicExtAppletEyedropper.desktop: /home/joel/Documents/Projects/cosmic-ext-applet-eyedropper/build-dir/export/share/applications/io.github.nalladev.CosmicExtAppletEyedropper.desktop: error: value "COSMIC" for key "Categories" in group "Desktop Entry" contains an unregistered value "COSMIC"; values extending the format should start with "X-"
+/home/joel/Documents/Projects/cosmic-ext-applet-eyedropper/build-dir/export/share/applications/io.github.nalladev.CosmicExtAppletEyedropper.desktop: hint: value "COSMIC" for key "Categories" in group "Desktop Entry" does not contain a registered main category; application might only show up in a "catch-all" section of the application menu
+
+Commit: 05b57221bf919c2ff2314dfc975fa9df67038df5a5d48d33e3de89982b9bc3b1
+Metadata Total: 59
+Metadata Written: 3
+Content Total: 15
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Exporting io.github.nalladev.CosmicExtAppletEyedropper.Debug to repo
+Commit: 39c0ec2899b7d52696678a051f193fa8c14abc925f35250ae38ce0049fb925eb
+Metadata Total: 9
+Metadata Written: 1
+Content Total: 2
+Content Written: 0
+Content Bytes Written: 0 (0 bytes)
+Installing app/io.github.nalladev.CosmicExtAppletEyedropper/x86_64/master
+Pruning cache
