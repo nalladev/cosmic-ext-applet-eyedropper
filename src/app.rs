@@ -207,7 +207,7 @@ pub struct AppModel {
     popup: Option<Id>,
     /// Configuration data that persists between application runs.
         config: Config,
-        /// cosmic_config context for writing configuration changes.
+        /// `cosmic_config` context for writing configuration changes.
         config_context: cosmic_config::Config,
 
         // ── Eyedropper / colour-picker state ────────────────────────────
@@ -354,14 +354,18 @@ impl cosmic::Application for AppModel {
             _flags: Self::Flags,
         ) -> (Self, Task<cosmic::Action<Self::Message>>) {
             let config_context = cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
-                            .map(|context| match Config::get_entry(&context) {
-                                Ok(config) => (context, config),
-                                Err((_errors, config)) => (context, config),
-                            })
-                            .unwrap_or_else(|_| {
-                                                            let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
-                                                            (ctx, Config::default())
-                                                        });
+                                        .map_or_else(
+                                            |_| {
+                                                let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
+                                                (ctx, Config::default())
+                                            },
+                                            |context| {
+                                                match Config::get_entry(&context) {
+                                                    Ok(config) => (context, config),
+                                                    Err((_errors, config)) => (context, config),
+                                                }
+                                            },
+                                        );
 
                         let (config_context, config_entry) = config_context;
 
