@@ -30,5 +30,5 @@ modules:
     sources:
       - type: git
         url: https://github.com/nalladev/cosmic-ext-applet-eyedropper.git
-        tag: v0.3.1
+        tag: v0.3.2
       - cargo-sources.json
