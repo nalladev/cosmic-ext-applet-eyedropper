@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-ext-applet-eyedropper"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 license = "MPL-2.0"
 description = "Eyedropper applet for cosmic desktop"
@@ -22,7 +22,6 @@ features = ["fluent-system", "desktop-requester"]
 
 [dependencies.libcosmic]
 git = "https://github.com/pop-os/libcosmic.git"
-rev = "cad4be9401b654ca3cb96908877a07fe379bfc5f"
 # See https://github.com/pop-os/libcosmic/blob/master/Cargo.toml for available features.
 features = [
     # Applet support

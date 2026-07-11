@@ -1,0 +1,34 @@
+app-id: io.github.nalladev.CosmicExtAppletEyedropper
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: cosmic-ext-applet-eyedropper
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --talk-name=com.system76.CosmicSettingsDaemon
+
+modules:
+  - name: cosmic-ext-applet-eyedropper
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/cosmic-ext-applet-eyedropper/cargo
+    build-commands:
+      - install -Dm644 cargo/config .cargo/config.toml
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --release --verbose
+      - install -Dm755 target/release/cosmic-ext-applet-eyedropper /app/bin/cosmic-ext-applet-eyedropper
+      - install -Dm644 resources/app.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 resources/app.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - install -Dm644 resources/icon.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+    sources:
+      - type: git
+        url: https://github.com/nalladev/cosmic-ext-applet-eyedropper.git
+        tag: v0.3.1
+      - cargo-sources.json
