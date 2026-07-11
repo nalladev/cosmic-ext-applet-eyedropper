@@ -316,9 +316,6 @@ pub enum Message {
     /// Auto-cleared after copy feedback timeout.
     ClearCopyFeedback,
 
-    // ── Frame tick (keeps overlay redrawing during picker mode) ────────
-    FrameTick,
-
     // ── Pre-created overlay lifecycle ──────────────────────────────────
     /// A pre-created overlay surface has been acknowledged by the
     /// compositor (configure received).
@@ -444,7 +441,7 @@ impl cosmic::Application for AppModel {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        let mut subs: Vec<Subscription<Self::Message>> = vec![
+        let subs: Vec<Subscription<Self::Message>> = vec![
             // Config changes
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
@@ -457,15 +454,6 @@ impl cosmic::Application for AppModel {
                 _ => None,
             }),
         ];
-
-        // Keep the UI thread ticking during picker mode so the magnifier
-        // overlay continuously redraws.
-        if self.picker.is_some() {
-            subs.push(
-                cosmic::iced::time::every(Duration::from_millis(16))
-                    .map(|_| Message::FrameTick),
-            );
-        }
 
         Subscription::batch(subs)
     }
@@ -939,16 +927,6 @@ impl cosmic::Application for AppModel {
             Message::ClearCopyFeedback => {
                 self.copied_target = None;
                 self.copied_at = None;
-            }
-
-            // ── Frame tick (when picker is active) ──────────────────────
-            Message::FrameTick => {
-                // Sanity check: Picking state must have captures.
-                if let Some(p) = self.picker.as_ref()
-                    && p.captures.is_empty()
-                {
-                    eprintln!("[picker] FrameTick — state={:?} but captures empty!", p.state);
-                }
             }
 
             // ── Picker cancelled (Escape or external close) ────────────

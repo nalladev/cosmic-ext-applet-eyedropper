@@ -6,7 +6,7 @@
 5. ~~respect system/libcosmic spacing, theme, frosted glass styles, fonts, colours everything.~~ (done: use app_popup + surface_task for blur, theme colors in magnifier, libcosmic spacing/corner_radii in popup)
 6. ~~merge the 3 colour row in the popup menu into a single section still 3 rows but instead of 3 line separated sections simply 1 section for the colour values how is the cosmic design ethic for the menu popup in our case.~~ (done: single section with no dividers between rows, hide rows when no colour selected, caption_heading labels + monotext values, menu_button row with hover + click-to-copy)
 7. ~~fix ai generated readme - look through existing readmes of other applets. especially system applets also the most popular 3rd party applets. also welcome pr's. like if other repos does.~~ (done: rewrote README following patterns from cosmic-ext-connected, system-monitor, next-meeting, classic-menu)
-8. GitHub Pages + Aptly/ how does other applets ship/distribute?
-
+8. ~~is our applet memory safe? is rust properly written? how is performance i get dela in magnifier following cursor if i move very fast continuosly is that expected? is there room for improvement in performance/memry safety/EFFICIENCY/OPTIMIZATION?~~ (done: codebase audit — memory-safe, one `unsafe` in `memmap2::Mmap` is necessary/standard, fixed: removed no-op 60Hz `FrameTick` subscription that forced 60 unnecessary update+view cycles/sec, magnifier now redraws only on actual pointer movement; fixed `panic_message()` duplication in `wayland.rs`; note: fast-cursor lag is expected — inherent Wayland event batching + rendering pipeline latency, ~1 frame of lag is normal)
 9. Is code splitting needed?
 10. Is higher res freeze mode available?
+11. GitHub Pages + Aptly/ how does other applets ship/distribute?

@@ -161,13 +161,7 @@ pub async fn capture_all_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error>
             Ok(Ok(outputs)) => Ok(outputs),
             Ok(Err(e)) => Err(e),
             Err(panic) => {
-                let msg = if let Some(s) = panic.downcast_ref::<&str>() {
-                    s.to_string()
-                } else if let Some(s) = panic.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    "unknown panic".to_string()
-                };
+                let msg = panic_message(panic);
                 eprintln!("[capture] THREAD PANICKED: {msg}");
                 Err(anyhow::anyhow!("Capture thread panicked: {msg}"))
             }
