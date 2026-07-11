@@ -37,8 +37,8 @@
         {
           "type": "git",
           "url": "https://github.com/nalladev/cosmic-ext-applet-eyedropper.git",
-          "tag": "v0.3.2",
-          "commit": "ee1df59049bba526ae92cd46cdb6cd688fb9f61f"
+          "tag": "v0.3.3",
+          "commit": "d93fa3f4d870c168eab74fc9b20e37a2a368b25f"
         },
         "cargo-sources.json"
       ]
