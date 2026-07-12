@@ -114,7 +114,7 @@ vendor-flatpak:
 # Build flatpak from local source and install (auto-regenerates cargo sources if Cargo.lock changed)
 flatpak-build: vendor-flatpak
     flatpak-builder --user --install --force-clean build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.flatpak.json
+        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
 
 # Bump cargo version, create git commit, and create tag
 tag version:
@@ -124,4 +124,3 @@ tag version:
     git add Cargo.lock
     git commit -m 'release: {{version}}'
     git tag -a {{version}} -m ''
-
