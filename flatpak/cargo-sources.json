@@ -7,10 +7,64 @@
     "tag": "cosmic-0.14"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/common\" \"cargo/vendor/accesskit\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/consumer\" \"cargo/vendor/accesskit_consumer\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/platforms/android\" \"cargo/vendor/accesskit_android\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/platforms/atspi-common\" \"cargo/vendor/accesskit_atspi_common\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/platforms/macos\" \"cargo/vendor/accesskit_macos\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/platforms/unix\" \"cargo/vendor/accesskit_unix\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/platforms/windows\" \"cargo/vendor/accesskit_windows\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/accesskit-f0599eed/platforms/winit\" \"cargo/vendor/accesskit_winit\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/jackpot51/rust-atomicwrites",
     "commit": "043ab4859d53ffd3d55334685303d8df39c9f768",
     "dest": "flatpak-cargo/git/rust-atomicwrites-043ab485"
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/rust-atomicwrites-043ab485\" \"cargo/vendor/atomicwrites\""
+    ]
   },
   {
     "type": "git",
@@ -20,10 +74,58 @@
     "tag": "sctk-0.20"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/window_clipboard-f68595ee\" \"cargo/vendor/window_clipboard\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/window_clipboard-f68595ee/dnd\" \"cargo/vendor/dnd\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/window_clipboard-f68595ee/macos\" \"cargo/vendor/clipboard_macos\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/window_clipboard-f68595ee/mime\" \"cargo/vendor/mime\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/window_clipboard-f68595ee/wayland\" \"cargo/vendor/clipboard_wayland\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/window_clipboard-f68595ee/x11\" \"cargo/vendor/clipboard_x11\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/pop-os/cosmic-protocols",
     "commit": "32283d76a8d0342da74c4cc022a533c52dcf378f",
     "dest": "flatpak-cargo/git/cosmic-protocols-32283d76"
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/cosmic-protocols-32283d76\" \"cargo/vendor/cosmic-protocols\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/cosmic-protocols-32283d76/client-toolkit\" \"cargo/vendor/cosmic-client-toolkit\""
+    ]
   },
   {
     "type": "git",
@@ -32,10 +134,136 @@
     "dest": "flatpak-cargo/git/libcosmic-c44dbe79"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79\" \"cargo/vendor/libcosmic\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/cosmic-config\" \"cargo/vendor/cosmic-config\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/cosmic-config-derive\" \"cargo/vendor/cosmic-config-derive\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/cosmic-theme\" \"cargo/vendor/cosmic-theme\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/about\" \"cargo/vendor/about\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/applet\" \"cargo/vendor/applet\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/application\" \"cargo/vendor/application\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/calendar\" \"cargo/vendor/calendar\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/config\" \"cargo/vendor/config\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/context-menu\" \"cargo/vendor/context-menu\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/cosmic\" \"cargo/vendor/cosmic\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/image-button\" \"cargo/vendor/image-button\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/menu\" \"cargo/vendor/menu\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/multi-window\" \"cargo/vendor/multi-window\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/nav-context\" \"cargo/vendor/nav-context\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/open-dialog\" \"cargo/vendor/open-dialog\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/spin-button\" \"cargo/vendor/spin-button\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/subscriptions\" \"cargo/vendor/subscriptions\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/table-view\" \"cargo/vendor/table-view\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/libcosmic-c44dbe79/examples/text-input\" \"cargo/vendor/text-input\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/pop-os/freedesktop-icons",
     "commit": "ab4c57b8e416c6af9297cb04d101889896fd9a92",
     "dest": "flatpak-cargo/git/freedesktop-icons-ab4c57b8"
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/freedesktop-icons-ab4c57b8\" \"cargo/vendor/cosmic-freedesktop-icons\""
+    ]
   },
   {
     "type": "git",
@@ -44,16 +272,118 @@
     "dest": "flatpak-cargo/git/cosmic-panel-029400b2"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/cosmic-panel-029400b2/cosmic-panel-bin\" \"cargo/vendor/cosmic-panel-bin\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/cosmic-panel-029400b2/cosmic-panel-config\" \"cargo/vendor/cosmic-panel-config\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/cosmic-panel-029400b2/xdg-shell-wrapper-config\" \"cargo/vendor/xdg-shell-wrapper-config\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/pop-os/dbus-settings-bindings",
     "commit": "eed01dd3609e90e3c8cd043656734c500956c793",
     "dest": "flatpak-cargo/git/dbus-settings-bindings-eed01dd3"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/a11y\" \"cargo/vendor/cosmic-dbus-a11y\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/accounts-zbus\" \"cargo/vendor/accounts-zbus\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/bluez\" \"cargo/vendor/bluez-zbus\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/cosmic-settings-daemon\" \"cargo/vendor/cosmic-settings-daemon\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/geoclue2\" \"cargo/vendor/geoclue2\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/hostname1\" \"cargo/vendor/hostname1-zbus\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/locale1\" \"cargo/vendor/locale1\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/mpris2\" \"cargo/vendor/mpris2-zbus\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/networkmanager\" \"cargo/vendor/cosmic-dbus-networkmanager\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/nm-secret-agent-manager\" \"cargo/vendor/nm-secret-agent-manager\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/switcheroo-control\" \"cargo/vendor/switcheroo-control\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/timedate\" \"cargo/vendor/timedate-zbus\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/dbus-settings-bindings-eed01dd3/upower\" \"cargo/vendor/upower_dbus\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/iced-rs/cryoglyph",
     "commit": "e429a025df36ab8145708acb309080ae3deec17a",
     "dest": "flatpak-cargo/git/cryoglyph-e429a025"
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/cryoglyph-e429a025\" \"cargo/vendor/cryoglyph\""
+    ]
   },
   {
     "type": "git",
@@ -63,6 +393,78 @@
     "tag": "cosmic-0.14"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/dpi\" \"cargo/vendor/dpi\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit\" \"cargo/vendor/winit\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-android\" \"cargo/vendor/winit-android\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-appkit\" \"cargo/vendor/winit-appkit\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-common\" \"cargo/vendor/winit-common\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-core\" \"cargo/vendor/winit-core\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-orbital\" \"cargo/vendor/winit-orbital\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-uikit\" \"cargo/vendor/winit-uikit\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-wayland\" \"cargo/vendor/winit-wayland\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-web\" \"cargo/vendor/winit-web\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-win32\" \"cargo/vendor/winit-win32\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/winit-f737f1f5/winit-x11\" \"cargo/vendor/winit-x11\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/pop-os/smithay-clipboard",
     "commit": "859b02c88f45c554049a67c6ddeec1692ce0e20b",
@@ -70,11 +472,29 @@
     "tag": "sctk-0.20"
   },
   {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/smithay-clipboard-859b02c8\" \"cargo/vendor/smithay-clipboard\""
+    ]
+  },
+  {
     "type": "git",
     "url": "https://github.com/pop-os/softbuffer",
     "commit": "c2b2c19ddb38ff17495643699f97cb1f2064a1be",
     "dest": "flatpak-cargo/git/softbuffer-c2b2c19d",
     "tag": "cosmic-4.0"
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/softbuffer-c2b2c19d\" \"cargo/vendor/softbuffer\""
+    ]
+  },
+  {
+    "type": "shell",
+    "commands": [
+      "cp -r --reflink=auto \"flatpak-cargo/git/softbuffer-c2b2c19d/run-wasm\" \"cargo/vendor/run-wasm\""
+    ]
   },
   {
     "type": "file",
