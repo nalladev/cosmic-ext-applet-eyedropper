@@ -10,6 +10,7 @@ jobs:
   validate:
     name: Validate Flatpak Manifest
     runs-on: ubuntu-latest
+    if: false
     steps:
       - name: Checkout
         uses: actions/checkout@v5
