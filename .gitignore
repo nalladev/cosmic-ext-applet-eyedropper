@@ -8,6 +8,7 @@ vendor.tar
 .flatpak-builder/
 flatpak-builder-tools/
 build-dir/
+flatpak/cargo-sources.json
 Cargo.toml.patched
 generate_patched_cargo_toml.py
 debian/*

@@ -343,21 +343,7 @@ impl cosmic::Application for AppModel {
                             copied_at: None,
                         };
 
-            // If frosted glass is enabled for applets but the runtime didn't
-            // auto-enable blur (theme.transparent starts false), poke it now.
-            // This sets `blur_enabled = true` in the libcosmic runtime so that
-            // popups created later will receive blur via the Opened handler.
-            let blur_task = {
-                let theme = cosmic::theme::active();
-                if theme.cosmic().frosted_applets && !theme.transparent {
-                    cosmic::task::message(cosmic::Action::Cosmic(
-                        cosmic::app::Action::BlurEnabled,
-                    ))
-                } else {
-                    Task::none()
-                }
-            };
-            (app, blur_task)
+            (app, Task::none())
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {

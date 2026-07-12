@@ -98,6 +98,23 @@ vendor-extract:
     rm -rf vendor
     tar pxf vendor.tar
 
+# Regenerate flatpak cargo sources only if Cargo.lock changed
+vendor-flatpak:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    OUT="flatpak/cargo-sources.json"
+    if [ ! -f "$OUT" ] || [ Cargo.lock -nt "$OUT" ]; then
+        echo "Regenerating $OUT ..."
+        python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o "$OUT" Cargo.lock
+    else
+        echo "$OUT is up to date"
+    fi
+
+# Build flatpak (auto-regenerates cargo sources if needed)
+flatpak-build: vendor-flatpak
+    flatpak-builder --force-clean --user --repo=repo builddir \
+        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.flatpak.json
+
 # Bump cargo version, create git commit, and create tag
 tag version:
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
