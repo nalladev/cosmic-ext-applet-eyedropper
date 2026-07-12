@@ -115,6 +115,10 @@ flatpak-build: vendor-flatpak
     flatpak-builder --force-clean --user --repo=repo builddir \
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.flatpak.json
 
+# Install (or replace) the flatpak from local repo
+flatpak-install:
+    flatpak update --user io.github.nalladev.CosmicExtAppletEyedropper
+
 # Bump cargo version, create git commit, and create tag
 tag version:
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
