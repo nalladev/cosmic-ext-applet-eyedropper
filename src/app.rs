@@ -116,28 +116,76 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
         let circle_bg = Path::circle(centre, radius);
         frame.fill(&circle_bg, cosmic::iced::Color { a: 0.75, ..bg });
 
-        // 2. Draw each magnified pixel, but only if it lies within the circle.
-        for y in 0..self.grid_size {
-            for x in 0..self.grid_size {
-                let idx = y * self.grid_size + x;
+        // 2. Draw each magnified pixel, clipped to the circle boundary.
+        //
+        // Two problems exist with a naive centre-point inclusion test:
+        //   a) Overflow: edge cells whose centre is just inside the circle are
+        //      drawn as full rectangles, so their corners bleed outside the
+        //      border stroke.
+        //   b) Dark gap: cells whose centre is just outside the circle but
+        //      whose rectangle still overlaps it are excluded entirely.
+        //
+        // Fix: use a closest-point overlap test for inclusion (fixes b), then
+        // clip each drawn rectangle to the horizontal and vertical extents of
+        // the circle at the pixel centre (fixes a).  For centre-outside pixels
+        // the slab corner always falls inside the circle (no overflow).  For
+        // centre-inside pixels the residual overflow is sub-pixel (< 0.2 px
+        // for the default 17×17 / 8 px configuration).
+        for row in 0..self.grid_size {
+            for col in 0..self.grid_size {
+                let idx = row * self.grid_size + col;
                 if idx >= self.pixels.len() {
                     continue;
                 }
 
-                // Pixel centre in the canvas coordinate space.
-                let pcx = x as f32 * cell + cell / 2.0;
-                let pcy = y as f32 * cell + cell / 2.0;
+                // Pixel bounding rect in canvas coordinates.
+                let left = col as f32 * cell;
+                let top = row as f32 * cell;
+                let right = left + cell;
+                let bottom = top + cell;
+
+                // Closest point on the rect to the circle centre.
+                let cx = radius.clamp(left, right);
+                let cy = radius.clamp(top, bottom);
+                let cdx = cx - radius;
+                let cdy = cy - radius;
+                // Skip pixels whose rectangle doesn't overlap the circle.
+                if cdx * cdx + cdy * cdy > radius * radius {
+                    continue;
+                }
+
+                // Pixel centre and its offset from the circle centre.
+                let pcx = left + cell * 0.5;
+                let pcy = top + cell * 0.5;
                 let dx = pcx - radius;
                 let dy = pcy - radius;
 
-                if dx * dx + dy * dy <= radius * radius {
-                    let (r, g, b) = self.pixels[idx];
-                    let rect = Path::rectangle(
-                        cosmic::iced::Point::new(x as f32 * cell, y as f32 * cell),
-                        cosmic::iced::Size::new(cell, cell),
-                    );
-                    frame.fill(&rect, cosmic::iced::Color::from_rgb8(r, g, b));
+                // Horizontal span of the circle at this pixel's centre y,
+                // and vertical span at this pixel's centre x.
+                let span_x_sq = radius * radius - dy * dy;
+                let span_y_sq = radius * radius - dx * dx;
+                if span_x_sq < 0.0 || span_y_sq < 0.0 {
+                    continue;
                 }
+                let span_x = span_x_sq.sqrt();
+                let span_y = span_y_sq.sqrt();
+
+                // Clip the draw rectangle to those spans.
+                let cl = (radius - span_x).max(left);
+                let cr = (radius + span_x).min(right);
+                let ct = (radius - span_y).max(top);
+                let cb = (radius + span_y).min(bottom);
+
+                if cr <= cl || cb <= ct {
+                    continue;
+                }
+
+                let (r, g, b) = self.pixels[idx];
+                let rect = Path::rectangle(
+                    cosmic::iced::Point::new(cl, ct),
+                    cosmic::iced::Size::new(cr - cl, cb - ct),
+                );
+                frame.fill(&rect, cosmic::iced::Color::from_rgb8(r, g, b));
             }
         }
 
