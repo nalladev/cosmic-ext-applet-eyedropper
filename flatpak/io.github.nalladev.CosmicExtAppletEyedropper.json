@@ -3,19 +3,22 @@
   "runtime": "org.freedesktop.Platform",
   "runtime-version": "25.08",
   "sdk": "org.freedesktop.Sdk",
-  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable"],
+  "sdk-extensions": ["org.freedesktop.Sdk.Extension.rust-stable", "org.freedesktop.Sdk.Extension.llvm20"],
   "command": "cosmic-ext-applet-eyedropper",
   "finish-args": [
     "--share=ipc",
     "--socket=wayland",
     "--socket=fallback-x11",
     "--talk-name=com.system76.CosmicSettingsDaemon",
-    "--filesystem=xdg-config/cosmic:rw"
+    "--talk-name=org.freedesktop.portal.Desktop",
+    "--filesystem=xdg-config/cosmic:rw",
+    "--filesystem=xdg-run/pipewire-0"
   ],
   "build-options": {
-    "append-path": "/usr/lib/sdk/rust-stable/bin",
+    "append-path": "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm20/bin",
     "env": {
-      "CARGO_HOME": "/run/build/cosmic-ext-applet-eyedropper/cargo"
+      "CARGO_HOME": "/run/build/cosmic-ext-applet-eyedropper/cargo",
+      "LIBCLANG_PATH": "/usr/lib/sdk/llvm20/lib"
     }
   },
   "modules": [
@@ -23,7 +26,6 @@
       "name": "cosmic-ext-applet-eyedropper",
       "buildsystem": "simple",
       "build-commands": [
-        "install -Dm644 cargo/config .cargo/config.toml",
         "cargo --offline fetch --manifest-path Cargo.toml --verbose",
         "cargo --offline build --release --verbose",
         "install -Dm0755 ./target/release/cosmic-ext-applet-eyedropper /app/bin/cosmic-ext-applet-eyedropper",
@@ -35,8 +37,7 @@
         {
           "type": "git",
           "url": "https://github.com/nalladev/cosmic-ext-applet-eyedropper.git",
-          "tag": "v0.3.3",
-          "commit": "d93fa3f4d870c168eab74fc9b20e37a2a368b25f"
+          "commit": "9eba10cb16d832a4b898af6391140fe882f9f98b"
         },
         "cargo-sources.json"
       ]

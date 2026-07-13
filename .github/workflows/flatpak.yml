@@ -1,0 +1,35 @@
+name: Flatpak Validation
+
+on:
+  push:
+    branches: [packaging/flatpak]
+  pull_request:
+    branches: [packaging/flatpak]
+
+jobs:
+  validate:
+    name: Validate Flatpak Manifest
+    runs-on: ubuntu-latest
+    if: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak-builder python3
+
+      - name: Validate manifest syntax
+        run: |
+          flatpak-builder --show-manifest flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
+
+      - name: Validate cargo-sources.json syntax
+        run: |
+          python3 -m json.tool flatpak/cargo-sources.json > /dev/null
+
+      - name: Validate manifest JSON syntax
+        run: |
+          python3 -m json.tool flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null

@@ -1,117 +1,45 @@
-name: release
+name: Release
 
 on:
   push:
     tags:
-      - "v*"
-
-permissions:
-  contents: write
-
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
+      - 'v*'
 
 jobs:
   build:
-    name: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - aarch64-unknown-linux-gnu
-          - x86_64-unknown-linux-gnu
-        include:
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-24.04-arm
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-    runs-on: ${{ matrix.os }}
+    name: Build Native Packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install build dependencies
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            cmake pkg-config \
-            libexpat1-dev libfontconfig-dev libfreetype-dev \
-            libxkbcommon-dev libwayland-dev
+          sudo apt-get install -y cargo-deb cargo-generate-rpm libpipewire-0.3-dev
 
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1.12.0
+      - name: Build release
+        run: cargo build --release
 
-      - name: Install packaging plugins
-        run: |
-          cargo binstall --no-confirm just cargo-deb cargo-generate-rpm
+      - name: Build .deb
+        run: cargo deb
 
-      - name: Build packages
-        id: package
-        run: |
-          just build-release
-          just build-deb
-          just build-rpm
+      - name: Build .rpm
+        run: cargo generate-rpm
 
-          NAME="cosmic-ext-applet-eyedropper"
-          APPID="io.github.nalladev.CosmicExtAppletEyedropper"
-          ARCH="$(uname -m)"
-
-          mkdir "./$NAME"
-          cp "./target/release/$NAME" "./$NAME/"
-          cp ./resources/app.desktop "./$NAME/$APPID.desktop"
-          cp ./resources/app.metainfo.xml "./$NAME/$APPID.metainfo.xml"
-          cp ./resources/icon.svg "./$NAME/$APPID.svg"
-          cp ./resources/install.sh "./$NAME/"
-          strip -s "./$NAME/$NAME"
-          tar -czvf "$NAME-$ARCH.tar.gz" "$NAME"
-
-          cp ./target/debian/*.deb ./
-          cp ./target/generate-rpm/*.rpm ./
-
-          echo "$ARCH=./*.tar.gz" >> "$GITHUB_OUTPUT"
-          echo "$ARCH-deb=./*.deb" >> "$GITHUB_OUTPUT"
-          echo "$ARCH-rpm=./*.rpm" >> "$GITHUB_OUTPUT"
-
-      - name: Publish artifacts and release
-        uses: softprops/action-gh-release@v2
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         with:
-          draft: false
-          prerelease: false
           files: |
-            ${{ steps.package.outputs.x86_64 }}
-            ${{ steps.package.outputs.aarch64 }}
-            ${{ steps.package.outputs.x86_64-deb }}
-            ${{ steps.package.outputs.aarch64-deb }}
-            ${{ steps.package.outputs.x86_64-rpm }}
-            ${{ steps.package.outputs.aarch64-rpm }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  checksum:
-    runs-on: ubuntu-latest
-    needs:
-      - build
-    steps:
-      - name: Download release archives
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >-
-          gh release download
-          --repo ${{ github.repository }}
-          --pattern '*'
-          --dir release
-          ${{ github.ref_name }}
-
-      - name: Create checksums
-        run: |
-          cd release
-          shasum -a 256 * > ../SHA256SUMS
-
-      - name: Publish checksums
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: false
-          files: SHA256SUMS
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+            target/release/cosmic-ext-applet-eyedropper
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

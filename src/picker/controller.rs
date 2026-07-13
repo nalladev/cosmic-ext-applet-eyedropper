@@ -92,7 +92,11 @@ impl PickerController {
         overlay_ids: Vec<cosmic::iced::window::Id>,
     ) -> Self {
         let n = captures.len();
-        eprintln!("[picker] PickerController::new_with_captures({} outputs, {} overlays)", n, overlay_ids.len());
+        eprintln!(
+            "[picker] PickerController::new_with_captures({} outputs, {} overlays)",
+            n,
+            overlay_ids.len()
+        );
         for (i, oid) in overlay_ids.iter().enumerate() {
             eprintln!("[picker]   overlay[{i}] id={oid:?}");
         }
@@ -105,8 +109,6 @@ impl PickerController {
         }
     }
 
-
-
     // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
@@ -114,9 +116,7 @@ impl PickerController {
     /// Return the index of the output associated with a given overlay
     /// window ID, or `None` if the ID is unknown.
     fn overlay_output_index(&self, overlay_id: cosmic::iced::window::Id) -> Option<usize> {
-        self.overlay_ids
-            .iter()
-            .position(|id| *id == overlay_id)
+        self.overlay_ids.iter().position(|id| *id == overlay_id)
     }
 
     /// Determine which output contains the given logical (compositor-space)
@@ -127,10 +127,7 @@ impl PickerController {
         self.captures.iter().position(|o| {
             let right = o.pos_x + o.logical_width as i32;
             let bottom = o.pos_y + o.logical_height as i32;
-            x >= o.pos_x as f32
-                && x < right as f32
-                && y >= o.pos_y as f32
-                && y < bottom as f32
+            x >= o.pos_x as f32 && x < right as f32 && y >= o.pos_y as f32 && y < bottom as f32
         })
     }
 
@@ -158,12 +155,9 @@ impl PickerController {
         let px = ((x - output.pos_x as f32) as f64 * scale_x) as u32;
         let py = ((y - output.pos_y as f32) as f64 * scale_y) as u32;
 
-        output.pixel_at(px, py).map(|(r, g, b)| Color {
-            r,
-            g,
-            b,
-            a: 255,
-        })
+        output
+            .pixel_at(px, py)
+            .map(|(r, g, b)| Color { r, g, b, a: 255 })
     }
 
     // ------------------------------------------------------------------
@@ -209,12 +203,9 @@ impl PickerController {
         let pixel_x = (surface_x as f64 * scale_x) as u32;
         let pixel_y = (surface_y as f64 * scale_y) as u32;
 
-        let color = output.pixel_at(pixel_x, pixel_y).map(|(r, g, b)| Color {
-            r,
-            g,
-            b,
-            a: 255,
-        });
+        let color = output
+            .pixel_at(pixel_x, pixel_y)
+            .map(|(r, g, b)| Color { r, g, b, a: 255 });
 
         let info = HoverInfo {
             output_index: output_idx,
@@ -237,10 +228,7 @@ impl PickerController {
     ///
     /// If no hover state is available (e.g. click before any motion),
     /// returns `None` and the caller should treat the click as a no-op.
-    pub fn on_pointer_click(
-        &mut self,
-        _overlay_id: cosmic::iced::window::Id,
-    ) -> Option<Color> {
+    pub fn on_pointer_click(&mut self, _overlay_id: cosmic::iced::window::Id) -> Option<Color> {
         let hover = self.hover?;
         let color = self.sample_at(hover.global_pos.0, hover.global_pos.1)?;
         self.state = PickerState::Completed(color);

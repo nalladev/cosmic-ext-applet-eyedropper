@@ -36,12 +36,20 @@ build-release *args: (build-debug '--release' args)
 # Compiles release profile with vendored dependencies
 build-vendored *args: vendor-extract (build-release '--frozen --offline' args)
 
-# Runs a clippy check
+# Formats the codebase
+fmt *args:
+    cargo fmt {{args}}
+
+# Runs a cargo type check
 check *args:
+    cargo check {{args}}
+
+# Runs clippy lints
+lint *args:
     cargo clippy --all-features {{args}} -- -W clippy::pedantic
 
-# Runs a clippy check with JSON message format
-check-json: (check '--message-format=json')
+# Runs clippy lints with JSON message format
+lint-json: (lint '--message-format=json')
 
 # Run the application for testing purposes
 run *args:
@@ -90,6 +98,24 @@ vendor-extract:
     rm -rf vendor
     tar pxf vendor.tar
 
+# Regenerate flatpak cargo sources only if Cargo.lock changed
+vendor-flatpak:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    OUT="flatpak/cargo-sources.json"
+    if [ ! -f "$OUT" ] || [ Cargo.lock -nt "$OUT" ]; then
+        echo "Regenerating $OUT ..."
+        python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o "$OUT" Cargo.lock
+    else
+        echo "$OUT is up to date"
+    fi
+
+# Build flatpak (auto-regenerates cargo sources if needed)
+# Build flatpak from local source and install (auto-regenerates cargo sources if Cargo.lock changed)
+flatpak-build: vendor-flatpak
+    flatpak-builder --user --install --force-clean build-dir \
+        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+
 # Bump cargo version, create git commit, and create tag
 tag version:
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
@@ -98,4 +124,3 @@ tag version:
     git add Cargo.lock
     git commit -m 'release: {{version}}'
     git tag -a {{version}} -m ''
-

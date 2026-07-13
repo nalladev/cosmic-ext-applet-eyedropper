@@ -13,9 +13,7 @@ use cosmic::iced::core::mouse;
 use cosmic::iced::core::overlay;
 use cosmic::iced::core::renderer;
 use cosmic::iced::core::widget::{Operation, Tree};
-use cosmic::iced::core::{
-    Clipboard, Element, Layout, Length, Rectangle, Shell, Size, Widget,
-};
+use cosmic::iced::core::{Clipboard, Element, Layout, Length, Rectangle, Shell, Size, Widget};
 
 #[allow(missing_debug_implementations)]
 pub struct KeyboardWrapper<'a, Message> {
@@ -36,8 +34,7 @@ impl<'a, Message> KeyboardWrapper<'a, Message> {
     }
 }
 
-impl<Message> Widget<Message, cosmic::Theme, cosmic::Renderer>
-    for KeyboardWrapper<'_, Message>
+impl<Message> Widget<Message, cosmic::Theme, cosmic::Renderer> for KeyboardWrapper<'_, Message>
 where
     Message: Clone,
 {

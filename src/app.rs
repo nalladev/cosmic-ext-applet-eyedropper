@@ -6,25 +6,11 @@ use ::image::EncodableLayout;
 
 use crate::config::Config;
 use crate::fl;
-use crate::picker::{self, CapturedOutput, Color};
 use crate::picker::PickerController;
+use crate::picker::{self, CapturedOutput, Color};
 use crate::widget::keyboard_wrapper::KeyboardWrapper;
-use cosmic::{
-    applet::{menu_button, padded_control},
-    cosmic_config::{self, CosmicConfigEntry},
-    cosmic_theme::Spacing,
-    iced::{
-        Alignment, Border, ContentFit, Event, Length, Limits, Subscription,
-        event, mouse,
-        widget::{column, container, row, space, MouseArea, Stack},
-        window::{self, Id},
-    },
-    prelude::*,
-    surface,
-    surface::action::LiveSettings,
-    theme,
-    widget::{button, canvas, divider, icon, image, text},
-};
+use cosmic::cctk::sctk::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer};
+use cosmic::cctk::wayland_client::protocol::wl_output::WlOutput;
 use cosmic::iced::clipboard;
 use cosmic::iced::core::event::wayland::OutputEvent;
 use cosmic::iced::keyboard::{Key, key::Named};
@@ -34,8 +20,21 @@ use cosmic::iced::platform_specific::shell::commands::layer_surface::{
 use cosmic::iced::runtime::platform_specific::wayland::layer_surface::{
     IcedOutput, SctkLayerSurfaceSettings,
 };
-use cosmic::cctk::sctk::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer};
-use cosmic::cctk::wayland_client::protocol::wl_output::WlOutput;
+use cosmic::{
+    applet::{menu_button, padded_control},
+    cosmic_config::{self, CosmicConfigEntry},
+    cosmic_theme::Spacing,
+    iced::{
+        Alignment, Border, ContentFit, Event, Length, Limits, Subscription, event, mouse,
+        widget::{MouseArea, Stack, column, container, row, space},
+        window::{self, Id},
+    },
+    prelude::*,
+    surface,
+    surface::action::LiveSettings,
+    theme,
+    widget::{button, canvas, divider, icon, image, text},
+};
 
 // ---------------------------------------------------------------------------
 // Output tracking
@@ -115,13 +114,7 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
 
         // 1. Semi-transparent circular background matching the theme.
         let circle_bg = Path::circle(centre, radius);
-        frame.fill(
-            &circle_bg,
-            cosmic::iced::Color {
-                a: 0.75,
-                ..bg
-            },
-        );
+        frame.fill(&circle_bg, cosmic::iced::Color { a: 0.75, ..bg });
 
         // 2. Draw each magnified pixel, but only if it lies within the circle.
         for y in 0..self.grid_size {
@@ -163,9 +156,7 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
             cosmic::iced::Point::new(cx, cy + cross_extent),
         );
 
-        let crosshair_style = Stroke::default()
-            .with_color(fg)
-            .with_width(1.5);
+        let crosshair_style = Stroke::default().with_color(fg).with_width(1.5);
         frame.stroke(&h_line, crosshair_style);
         frame.stroke(&v_line, crosshair_style);
 
@@ -176,19 +167,12 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
         );
         frame.stroke(
             &centre_rect,
-            Stroke::default()
-                .with_color(fg)
-                .with_width(2.0),
+            Stroke::default().with_color(fg).with_width(2.0),
         );
 
         // 5. Outer circular border.
         let border = Path::circle(centre, radius - 0.5);
-        frame.stroke(
-            &border,
-            Stroke::default()
-                .with_color(fg)
-                .with_width(1.5),
-        );
+        frame.stroke(&border, Stroke::default().with_color(fg).with_width(1.5));
 
         vec![frame.into_geometry()]
     }
@@ -227,35 +211,6 @@ pub struct AppModel {
     /// `None` during normal operation.
     picker: Option<PickerController>,
 
-    // ── Deferred capture synchronisation ──────────────────────────────
-    /// When entering picker mode, the popup must be fully gone before
-    /// capture starts (otherwise the popup appears in the screenshot).
-    /// This field holds the destroyed popup's ID; when `PopupClosed`
-    /// fires with a matching ID we know the compositor has removed the
-    /// popup and it is safe to begin capture.
-    pending_popup_close: Option<Id>,
-
-    // ── Two-phase capture (flicker-free entry into picker mode) ──────────
-    // Session negotiation (`prepare_all_outputs`) runs concurrently with
-    // closing the popup; the fast frame-grab (`finish_all_outputs`) only
-    // starts once *both* are done, whichever finishes last.
-    /// Pre-negotiated capture sessions, ready for the final (fast) frame
-    /// grab.  `None` until `SessionsPrepared` arrives.
-    prepared_sessions: Option<Vec<picker::PreparedOutputCapture>>,
-    /// Set if session negotiation failed; the fallback is to run the full
-    /// (slower) single-shot capture once the popup is confirmed closed.
-    sessions_prepare_failed: bool,
-    /// Set once the popup is confirmed closed while entering picker mode —
-    /// i.e. we're just waiting on `prepared_sessions` / `sessions_prepare_failed`
-    /// before starting the final capture.
-    popup_confirmed_for_picker: bool,
-    /// Hand-off slot for the (non-`Clone`) prepared sessions produced by the
-    /// `prepare_all_outputs` background task.  The task writes into this
-    /// slot and emits the lightweight `Message::SessionsPrepared`; the
-    /// handler then `take()`s the value out into `prepared_sessions`.
-    prepared_sessions_slot:
-        std::sync::Arc<std::sync::Mutex<Option<Vec<picker::PreparedOutputCapture>>>>,
-
     // ── Pre-created overlay tracking ───────────────────────────────────
     /// Overlay window IDs that have been pre-created (transparent) but
     /// are not yet showing the frozen image.  Populated when entering
@@ -281,19 +236,13 @@ pub enum Message {
     UpdateConfig(Config),
 
     // ── Capture flow ────────────────────────────────────────────────
+    // ────────────────────────────────────────────────
     /// The eyedropper button was clicked in the popup.
     EyedropperClicked,
-    /// Raw captured output data is ready.
+    /// Screenshot captured and per-output data is ready.
     CaptureCompleted(Vec<CapturedOutput>),
-    /// The capture failed with an error message.
+    /// The screenshot capture failed with an error message.
     CaptureFailed(String),
-    /// Capture sessions have been negotiated (formats + buffers ready) for
-    /// all outputs.  The actual prepared data is handed off out-of-band
-    /// (see `prepared_sessions_slot`) since it isn't `Clone`.
-    SessionsPrepared,
-    /// Session negotiation failed; fall back to the single-shot capture
-    /// pipeline once the popup is confirmed closed.
-    SessionsPrepareFailed(String),
 
     // ── Wayland output tracking ─────────────────────────────────────
     OutputEvent(Box<OutputEvent>, WlOutput),
@@ -343,52 +292,39 @@ impl cosmic::Application for AppModel {
     }
 
     fn init(
-            core: cosmic::Core,
-            _flags: Self::Flags,
-        ) -> (Self, Task<cosmic::Action<Self::Message>>) {
-            let config_entry = cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
-                .map(|context| match Config::get_entry(&context) {
-                    Ok(config) => config,
-                    Err((_errors, config)) => config,
-                })
-                .unwrap_or_default();
+        core: cosmic::Core,
+        _flags: Self::Flags,
+    ) -> (Self, Task<cosmic::Action<Self::Message>>) {
+        let config_context = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).map_or_else(
+            |_| {
+                let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
+                (ctx, Config::default())
+            },
+            |context| match Config::get_entry(&context) {
+                Ok(config) => (context, config),
+                Err((_errors, config)) => (context, config),
+            },
+        );
 
-            let app = AppModel {
-                core,
-                config: config_entry,
-                popup: None,
-                sampled: None,
-                error: None,
-                hex: String::new(),
-                rgb: String::new(),
-                hsl: String::new(),
-                outputs: Vec::new(),
-                picker: None,
-                pending_popup_close: None,
-                prepared_sessions: None,
-                sessions_prepare_failed: false,
-                popup_confirmed_for_picker: false,
-                prepared_sessions_slot: std::sync::Arc::new(std::sync::Mutex::new(None)),
-                pending_overlay_ids: Vec::new(),
-                copied_target: None,
-                copied_at: None,
-            };
+        let (_config_context, config_entry) = config_context;
 
-            // If frosted glass is enabled for applets but the runtime didn't
-            // auto-enable blur (theme.transparent starts false), poke it now.
-            // This sets `blur_enabled = true` in the libcosmic runtime so that
-            // popups created later will receive blur via the Opened handler.
-            let blur_task = {
-                let theme = cosmic::theme::active();
-                if theme.cosmic().frosted_applets && !theme.transparent {
-                    cosmic::task::message(cosmic::Action::Cosmic(
-                        cosmic::app::Action::BlurEnabled,
-                    ))
-                } else {
-                    Task::none()
-                }
-            };
-            (app, blur_task)
+        let app = AppModel {
+            core,
+            config: config_entry,
+            popup: None,
+            sampled: None,
+            error: None,
+            hex: String::new(),
+            rgb: String::new(),
+            hsl: String::new(),
+            outputs: Vec::new(),
+            picker: None,
+            pending_overlay_ids: Vec::new(),
+            copied_target: None,
+            copied_at: None,
+        };
+
+        (app, Task::none())
     }
 
     fn on_close_requested(&self, id: Id) -> Option<Message> {
@@ -400,11 +336,8 @@ impl cosmic::Application for AppModel {
         {
             return Some(Message::PickerCancel);
         }
-        // Otherwise it's the popup.  Also match popups that were closed
-        // as part of entering picker mode (pending_popup_close) — their
-        // close notification must still arrive even though `self.popup`
-        // was already cleared to None.  See EyedropperClicked.
-        if self.popup == Some(id) || self.pending_popup_close == Some(id) {
+        // Otherwise it's the popup.
+        if self.popup == Some(id) {
             return Some(Message::PopupClosed(id));
         }
         None
@@ -460,12 +393,11 @@ impl cosmic::Application for AppModel {
 
     #[allow(clippy::too_many_lines)]
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
-
         match message {
-            // ── Toggle the eyedropper popup ─────────────────────────────
+            // ────────────────────────────────────────────────
             Message::TogglePopup => {
-                // Ignore while in picker mode or waiting for popup close.
-                if self.picker.is_some() || self.pending_popup_close.is_some() {
+                // Ignore while in picker mode.
+                if self.picker.is_some() {
                     return Task::none();
                 }
                 return if let Some(p) = self.popup.take() {
@@ -496,10 +428,9 @@ impl cosmic::Application for AppModel {
             }
 
             // ── Popup was closed ────────────────────────────────────────
+            // ────────────────────────────────────────────────
             Message::PopupClosed(id) => {
                 eprintln!("[picker] PopupClosed({id:?})");
-                eprintln!("[picker]   self.popup={:?}, pending_popup_close={:?}",
-                    self.popup, self.pending_popup_close);
 
                 // Normal popup lifecycle (user closed it manually).
                 if self.popup.as_ref() == Some(&id) {
@@ -508,56 +439,20 @@ impl cosmic::Application for AppModel {
                     self.copied_at = None;
                     eprintln!("[picker]   normal popup close — no capture.");
                 }
-
-                // Deferred capture: the popup was closed as part of
-                // entering picker mode.  The compositor has now confirmed
-                // the popup is gone; the *fast* final capture step can
-                // start as soon as sessions are also ready (see
-                // `maybe_start_final_capture`) — this is what keeps the
-                // live-desktop gap (and thus the flicker) as short as
-                // possible.
-                if self.pending_popup_close == Some(id) {
-                    self.pending_popup_close = None;
-                    self.popup_confirmed_for_picker = true;
-                    eprintln!("[picker]   MATCH! popup confirmed closed, checking sessions.");
-                    return self.maybe_start_final_capture();
-                }
-                eprintln!("[picker]   no match (pending={:?}, normal={:?})",
-                    self.pending_popup_close, self.popup);
             }
 
-            // ── Capture sessions negotiated (formats + buffers ready) ────
-            Message::SessionsPrepared => {
-                let prepared = self.prepared_sessions_slot.lock().unwrap().take();
-                eprintln!("[picker] SessionsPrepared — {} output(s) ready",
-                    prepared.as_ref().map_or(0, std::vec::Vec::len));
-                self.prepared_sessions = prepared;
-                return self.maybe_start_final_capture();
-            }
-
-            // ── Capture session negotiation failed ───────────────────────
-            Message::SessionsPrepareFailed(msg) => {
-                eprintln!("[picker] SessionsPrepareFailed: {msg}");
-                self.sessions_prepare_failed = true;
-                return self.maybe_start_final_capture();
-            }
-
-            // ── Configuration updated externally ────────────────────────
+            // ────────────────────────────────────────────────
             Message::UpdateConfig(config) => {
                 self.config = config;
             }
 
-            // ── Eyedropper button clicked ───────────────────────────────
+            // ────────────────────────────────────────────────
             Message::EyedropperClicked => {
-                eprintln!("[picker] EyedropperClicked — entering picker mode");
+                eprintln!("[picker] EyedropperClicked — starting Screenshot portal capture");
 
-                // Ignore if already in picker mode.
-                if self.picker.is_some() || self.pending_popup_close.is_some() || !self.pending_overlay_ids.is_empty() {
-                    eprintln!("[picker]   WARNING: ignored — picker={}, pending_close={}, pending_overlays={}",
-                        self.picker.is_some(),
-                        self.pending_popup_close.is_some(),
-                        self.pending_overlay_ids.len(),
-                    );
+                // Ignore if already picking
+                if self.picker.is_some() {
+                    eprintln!("[picker]   WARNING: ignored — picker already active");
                     return Task::none();
                 }
 
@@ -566,102 +461,42 @@ impl cosmic::Application for AppModel {
                 self.copied_target = None;
                 self.copied_at = None;
 
-                eprintln!("[picker]   tracked outputs: {}", self.outputs.len());
-
-                self.prepared_sessions = None;
-                self.sessions_prepare_failed = false;
-                self.popup_confirmed_for_picker = false;
-
-                // ── Pre-create transparent overlay surfaces ────────────
-                //
-                // Layer surfaces are created *before* destroying the popup
-                // so that when the popup disappears, the compositor already
-                // has the overlay committed and ready to display.  The
-                // overlay starts transparent (no captures yet) and shows
-                // the frozen image once the capture completes — eliminating
-                // the visible flicker of the live desktop.
-                //
-                // The slow session/format negotiation runs concurrently
-                // with both the overlay creation and popup destruction.
-                if let Some(popup_id) = self.popup.take() {
-                    self.pending_popup_close = Some(popup_id);
-                    self.pending_overlay_ids.clear();
-                    eprintln!("[picker]   popup {popup_id:?} removed, pending_popup_close set.");
-
-                    // 1. Create transparent overlay surfaces on all outputs.
-                    let mut overlay_tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
-                    let mut overlay_ids = Vec::new();
-                    for (i, output_state) in self.outputs.iter().enumerate() {
-                        let overlay_id = output_state.id;
-                        overlay_ids.push(overlay_id);
-                        eprintln!("[picker]   pre-creating overlay[{i}] id={overlay_id:?} on output '{}'", output_state.name);
-                        overlay_tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
-                            id: overlay_id,
-                            layer: Layer::Overlay,
-                            keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                            anchor: Anchor::all(),
-                            output: IcedOutput::Output(output_state.output.clone()),
-                            namespace: "color-picker".to_string(),
-                            size: Some((None, None)),
-                            exclusive_zone: -1,
-                            size_limits: Limits::NONE.min_height(1.0).min_width(1.0),
-                            ..Default::default()
-                        }));
-                    }
-                    self.pending_overlay_ids = overlay_ids;
-
-                    // 2. Start session negotiation (slow) concurrently.
-                    let slot = self.prepared_sessions_slot.clone();
-                    let prepare_task = Task::perform(
-                        async move {
-                            match picker::prepare_all_outputs().await {
-                                Ok(prepared) => {
-                                    *slot.lock().unwrap() = Some(prepared);
-                                    Ok(())
-                                }
-                                Err(e) => Err(e.to_string()),
-                            }
-                        },
-                        |result: Result<(), String>| {
-                            let msg = match result {
-                                Ok(()) => Message::SessionsPrepared,
-                                Err(e) => Message::SessionsPrepareFailed(e),
-                            };
-                            cosmic::Action::App(msg)
-                        },
-                    );
-
-                    // All three happen concurrently: overlays appear (transparent),
-                    // popup disappears, and session negotiation runs in background.
-                    // When the capture completes, the frozen image populates the
-                    // already-visible overlay — no flicker.
-                    let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = overlay_tasks;
-                    tasks.push(surface::surface_task(surface::action::destroy_popup(popup_id)));
-                    tasks.push(prepare_task);
-                    return Task::batch(tasks);
-                }
-                eprintln!("[picker]   popup was already closed — starting capture immediately.");
-                return Task::perform(
-                    picker::capture_all_outputs(),
-                    |result| {
-                        let msg = match result {
-                            Ok(outputs) => Message::CaptureCompleted(outputs),
-                            Err(e) => Message::CaptureFailed(e.to_string()),
-                        };
-                        cosmic::Action::App(msg)
+                // Start capture in background
+                let capture_task = Task::perform(
+                    picker::capture_outputs(),
+                    |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
+                        Ok(captures) => Message::CaptureCompleted(captures),
+                        Err(e) => Message::CaptureFailed(e.to_string()),
                     },
-                );
+                )
+                .map(cosmic::Action::App);
+
+                // Close popup if open
+                if let Some(popup_id) = self.popup.take() {
+                    return Task::batch(vec![
+                        surface::surface_task(surface::action::destroy_popup(popup_id)),
+                        capture_task,
+                    ]);
+                }
+
+                // Popup already closed, just start capture
+                return capture_task;
             }
 
-            // ── Capture completed successfully ──────────────────────────
+            // ────────────────────────────────────────────────
             Message::CaptureCompleted(captures) => {
                 let t_capture = std::time::Instant::now();
                 eprintln!("[picker] CaptureCompleted — {} outputs", captures.len());
                 for cap in &captures {
-                    eprintln!("[picker]   output: {} {}x{} @({},{}) logical {}x{} rgba={}b",
-                        cap.name, cap.width, cap.height,
-                        cap.pos_x, cap.pos_y,
-                        cap.logical_width, cap.logical_height,
+                    eprintln!(
+                        "[picker]   output: {} {}x{} @({},{}) logical {}x{} rgba={}b",
+                        cap.name,
+                        cap.width,
+                        cap.height,
+                        cap.pos_x,
+                        cap.pos_y,
+                        cap.logical_width,
+                        cap.logical_height,
                         cap.rgba.as_bytes().len(),
                     );
                 }
@@ -675,7 +510,9 @@ impl cosmic::Application for AppModel {
                 // If picker mode was cancelled while capture was running,
                 // discard the result.
                 if self.picker.is_some() {
-                    eprintln!("[picker]   WARNING: picker already exists — discard duplicate capture");
+                    eprintln!(
+                        "[picker]   WARNING: picker already exists — discard duplicate capture"
+                    );
                     return Task::none();
                 }
 
@@ -693,12 +530,20 @@ impl cosmic::Application for AppModel {
                 // flicker-free transition.
                 if !self.pending_overlay_ids.is_empty() {
                     let overlay_ids = std::mem::take(&mut self.pending_overlay_ids);
-                    eprintln!("[picker]   reusing {} pre-created overlay(s): {:?}", overlay_ids.len(), overlay_ids);
+                    eprintln!(
+                        "[picker]   reusing {} pre-created overlay(s): {:?}",
+                        overlay_ids.len(),
+                        overlay_ids
+                    );
                     let n_overlays = overlay_ids.len();
                     self.picker = Some(PickerController::new_with_captures(
-                        captures, image_handles, overlay_ids,
+                        captures,
+                        image_handles,
+                        overlay_ids,
                     ));
-                    eprintln!("[picker]   picker created in Picking state with {n_overlays} overlays (pre-created path)");
+                    eprintln!(
+                        "[picker]   picker created in Picking state with {n_overlays} overlays (pre-created path)"
+                    );
                     eprintln!(
                         "[picker]   CaptureCompleted handler took {:?}",
                         t_capture.elapsed(),
@@ -707,15 +552,20 @@ impl cosmic::Application for AppModel {
                 }
 
                 // Fallback: create overlay windows now (no pre-creation).
-                eprintln!("[picker]   creating overlay windows on {} outputs...", self.outputs.len());
+                eprintln!(
+                    "[picker]   creating overlay windows on {} outputs...",
+                    self.outputs.len()
+                );
                 let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
                 let mut overlay_ids = Vec::new();
 
                 for (i, output_state) in self.outputs.iter().enumerate() {
                     let overlay_id = output_state.id;
                     overlay_ids.push(overlay_id);
-                    eprintln!("[picker]   creating overlay[{i}] id={overlay_id:?} on output '{}",
-                        output_state.name);
+                    eprintln!(
+                        "[picker]   creating overlay[{i}] id={overlay_id:?} on output '{}",
+                        output_state.name
+                    );
                     tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
                         id: overlay_id,
                         layer: Layer::Overlay,
@@ -732,7 +582,9 @@ impl cosmic::Application for AppModel {
 
                 let n_overlays = overlay_ids.len();
                 self.picker = Some(PickerController::new_with_captures(
-                    captures, image_handles, overlay_ids,
+                    captures,
+                    image_handles,
+                    overlay_ids,
                 ));
                 eprintln!("[picker]   picker created in Picking state with {n_overlays} overlays");
                 eprintln!(
@@ -778,8 +630,7 @@ impl cosmic::Application for AppModel {
                             && info.logical_size.is_some()
                             && info.logical_position.is_some() =>
                     {
-                        if let Some(state) =
-                            self.outputs.iter_mut().find(|o| o.output == wl_output)
+                        if let Some(state) = self.outputs.iter_mut().find(|o| o.output == wl_output)
                         {
                             state.name = info.name.unwrap();
                             state.logical_size = info
@@ -813,7 +664,9 @@ impl cosmic::Application for AppModel {
                 if let Some(picker) = self.picker.as_mut() {
                     let result = picker.on_pointer_motion(id, x, y);
                     if result.is_none() {
-                        eprintln!("[picker] PointerMoved({id:?}, {x:.0}, {y:.0}) — FAILED (no output match)");
+                        eprintln!(
+                            "[picker] PointerMoved({id:?}, {x:.0}, {y:.0}) — FAILED (no output match)"
+                        );
                     }
                 } else {
                     eprintln!("[picker] PointerMoved({id:?}) — ignored, no picker");
@@ -824,18 +677,24 @@ impl cosmic::Application for AppModel {
             Message::PointerClicked(id) => {
                 eprintln!("[picker] PointerClicked({id:?})");
                 if let Some(picker) = self.picker.as_mut() {
-                    eprintln!("[picker]   picker state={:?}, captures={}", picker.state, picker.captures.len());
+                    eprintln!(
+                        "[picker]   picker state={:?}, captures={}",
+                        picker.state,
+                        picker.captures.len()
+                    );
                     if let Some(color) = picker.on_pointer_click(id) {
-                        eprintln!("[picker]   COLOUR SELECTED: {} / {} / {}",
-                            color.hex(), color.rgb(), color.hsl());
+                        eprintln!(
+                            "[picker]   COLOUR SELECTED: {} / {} / {}",
+                            color.hex(),
+                            color.rgb(),
+                            color.hsl()
+                        );
                         // Colour selected — exit picker mode.
                         let overlays = picker.overlay_ids.clone();
                         self.picker.take();
 
                         self.sampled = Some(color);
-                        self.hex = color.hex();
-                        self.rgb = color.rgb();
-                        self.hsl = color.hsl();
+                        self.update_color_strings(color);
 
                         let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
 
@@ -870,6 +729,7 @@ impl cosmic::Application for AppModel {
                         return Task::batch(tasks);
                     }
                 }
+                return Task::none().map(cosmic::Action::App);
             }
 
             // ── Clipboard copy ─────────────────────────────────────────
@@ -935,7 +795,7 @@ impl cosmic::Application for AppModel {
                 return self.cancel_picker();
             }
 
-            // ── Pre-created overlay acknowledged by compositor ─────────
+            // ─────────────────────────────────────────────────────────
             Message::OverlayCreated(id) => {
                 eprintln!("[picker] OverlayCreated({id:?}) — overlay surface ready");
             }
@@ -954,6 +814,13 @@ impl cosmic::Application for AppModel {
 // ---------------------------------------------------------------------------
 
 impl AppModel {
+    /// Update the cached color representation strings (hex, rgb, hsl) from a Color.
+    fn update_color_strings(&mut self, color: Color) {
+        self.hex = color.hex();
+        self.rgb = color.rgb();
+        self.hsl = color.hsl();
+    }
+
     /// Build a single colour-representation row (label + value + copy button).
     ///
     /// The copy-area shows a symbolic copy icon when a colour is available,
@@ -999,9 +866,7 @@ impl AppModel {
         .spacing(f32::from(space_xxs))
         .align_y(Alignment::Center);
 
-        menu_button(content)
-            .on_press(msg)
-            .into()
+        menu_button(content).on_press(msg).into()
     }
 
     /// Render the normal eyedropper popup.
@@ -1016,31 +881,31 @@ impl AppModel {
         let corner_radii = theme::active().cosmic().corner_radii;
 
         // Derive display strings.
-        let (hex_val, rgb_val, hsl_val): (String, String, String) =
-            if let Some(c) = self.sampled {
-                (c.hex(), c.rgb(), c.hsl())
-            } else {
-                (self.hex.clone(), self.rgb.clone(), self.hsl.clone())
-            };
+        let (hex_val, rgb_val, hsl_val): (String, String, String) = if let Some(c) = self.sampled {
+            (c.hex(), c.rgb(), c.hsl())
+        } else {
+            (self.hex.clone(), self.rgb.clone(), self.hsl.clone())
+        };
 
         let has_color = self.sampled.is_some();
 
         // Colour swatch.
-        let swatch_color = self
-            .sampled
-            .map_or(cosmic::iced::Color::WHITE, |c| cosmic::iced::Color::from_rgb8(c.r, c.g, c.b));
+        let swatch_color = self.sampled.map_or(cosmic::iced::Color::WHITE, |c| {
+            cosmic::iced::Color::from_rgb8(c.r, c.g, c.b)
+        });
 
-        let swatch = container(space::horizontal())
-            .width(32)
-            .height(32)
-            .style(move |_: &cosmic::Theme| container::Style {
-                background: Some(swatch_color.into()),
-                border: Border {
-                    radius: corner_radii.radius_s.into(),
+        let swatch =
+            container(space::horizontal())
+                .width(32)
+                .height(32)
+                .style(move |_: &cosmic::Theme| container::Style {
+                    background: Some(swatch_color.into()),
+                    border: Border {
+                        radius: corner_radii.radius_s.into(),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                },
-                ..Default::default()
-            });
+                });
 
         // Centre text: HEX value or placeholder.
         let centre: Element<'_, Message> = if has_color {
@@ -1056,16 +921,12 @@ impl AppModel {
         };
 
         // "Select Colour" button (primary action).
-        let select_button = button::suggested(fl!("select-colour"))
-            .on_press(Message::EyedropperClicked);
+        let select_button =
+            button::suggested(fl!("select-colour")).on_press(Message::EyedropperClicked);
 
-        let heading = row![
-            swatch,
-            centre,
-            select_button,
-        ]
-        .spacing(f32::from(space_xs))
-        .align_y(Alignment::Center);
+        let heading = row![swatch, centre, select_button,]
+            .spacing(f32::from(space_xs))
+            .align_y(Alignment::Center);
 
         let mut content = column![padded_control(heading)]
             .padding([space_xxs, 0])
@@ -1074,10 +935,7 @@ impl AppModel {
         // ── Colour values section ───────────────────────────────────────
         if has_color {
             content = content
-                .push(
-                    padded_control(divider::horizontal::default())
-                        .padding([space_xxs, space_s]),
-                )
+                .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
                 .push(self.color_row(fl!("hex"), &hex_val, CopyTarget::Hex, Message::CopyHex))
                 .push(self.color_row(fl!("rgb"), &rgb_val, CopyTarget::Rgb, Message::CopyRgb))
                 .push(self.color_row(fl!("hsl"), &hsl_val, CopyTarget::Hsl, Message::CopyHsl));
@@ -1085,9 +943,7 @@ impl AppModel {
 
         // Status / error message.
         if let Some(ref err) = self.error {
-            content = content.push(
-                padded_control(text::body(err)).padding([space_xxs, space_s]),
-            );
+            content = content.push(padded_control(text::body(err)).padding([space_xxs, space_s]));
         }
 
         self.core.applet.popup_container(content).into()
@@ -1103,7 +959,9 @@ impl AppModel {
             // progress).  Render a full-screen transparent surface with
             // keyboard support so Escape works immediately.
             if self.pending_overlay_ids.contains(&id) {
-                eprintln!("[picker] view_picker_overlay({id:?}) — pre-created, transparent placeholder");
+                eprintln!(
+                    "[picker] view_picker_overlay({id:?}) — pre-created, transparent placeholder"
+                );
                 let event_layer = MouseArea::new(
                     container(space::horizontal())
                         .width(Length::Fill)
@@ -1111,13 +969,10 @@ impl AppModel {
                 )
                 .interaction(mouse::Interaction::Crosshair);
 
-                return KeyboardWrapper::new(
-                    event_layer,
-                    |key, _modifiers| match key {
-                        Key::Named(Named::Escape) => Some(Message::PickerCancel),
-                        _ => None,
-                    },
-                )
+                return KeyboardWrapper::new(event_layer, |key, _modifiers| match key {
+                    Key::Named(Named::Escape) => Some(Message::PickerCancel),
+                    _ => None,
+                })
                 .into();
             }
             eprintln!("[picker] view_picker_overlay({id:?}) — no picker, rendering placeholder");
@@ -1125,16 +980,11 @@ impl AppModel {
         };
 
         // ── Picking state: full interaction ────────────────────────────
-        let on_move = move |point: cosmic::iced::Point| {
-            Message::PointerMoved(id, point.x, point.y)
-        };
+        let on_move = move |point: cosmic::iced::Point| Message::PointerMoved(id, point.x, point.y);
 
         // Background layer: captured framebuffer (frozen desktop).
         let image_layer: Option<Element<'_, Message>> = {
-            let output_idx = picker
-                .overlay_ids
-                .iter()
-                .position(|oid| *oid == id);
+            let output_idx = picker.overlay_ids.iter().position(|oid| *oid == id);
             output_idx
                 .and_then(|idx| picker.image_handles.get(idx))
                 .map(|handle| {
@@ -1166,13 +1016,10 @@ impl AppModel {
             stack = stack.push(mag);
         }
 
-        KeyboardWrapper::new(
-            stack,
-            |key, _modifiers| match key {
-                Key::Named(Named::Escape) => Some(Message::PickerCancel),
-                _ => None,
-            },
-        )
+        KeyboardWrapper::new(stack, |key, _modifiers| match key {
+            Key::Named(Named::Escape) => Some(Message::PickerCancel),
+            _ => None,
+        })
         .into()
     }
 
@@ -1184,10 +1031,15 @@ impl AppModel {
     /// the other side near screen edges.  No text labels — the magnifier
     /// is purely visual.  Returns `None` if no hover state is available
     /// (e.g. before the first pointer-motion event).
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss
+    )]
     fn build_magnifier(&self) -> Option<Element<'static, Message>> {
-        const GRID_SIZE: usize = 17;   // odd for centred crosshair
-        const PIXEL_SCALE: f32 = 8.0;  // logical pixels per magnified cell
+        const GRID_SIZE: usize = 17; // odd for centred crosshair
+        const PIXEL_SCALE: f32 = 8.0; // logical pixels per magnified cell
         const HALF: i32 = (GRID_SIZE / 2) as i32;
         const BELOW_OFFSET: f32 = 14.0;
 
@@ -1226,8 +1078,8 @@ impl AppModel {
         // Surface-local cursor coordinates (output-relative).
         let (cur_x, cur_y) = hover.local_pos;
 
-        let offset_x = 12.0;  // right of cursor
-        let offset_y = -(total + 12.0);  // above cursor
+        let offset_x = 12.0; // right of cursor
+        let offset_y = -(total + 12.0); // above cursor
 
         let mut mag_x = cur_x + offset_x;
         let mut mag_y = cur_y + offset_y;
@@ -1261,59 +1113,14 @@ impl AppModel {
         )
     }
 
-    /// Start the final (fast) capture step once *both* of the following are
-    /// true: the popup has been confirmed closed, and we know whether the
-    /// pre-negotiated sessions are ready (or failed).  Called from the
-    /// `PopupClosed`, `SessionsPrepared`, and `SessionsPrepareFailed`
-    /// handlers — whichever of the two conditions is satisfied last is the
-    /// one that actually kicks off the capture.
-    fn maybe_start_final_capture(&mut self) -> Task<cosmic::Action<Message>> {
-        if !self.popup_confirmed_for_picker {
-            return Task::none();
-        }
-
-        if let Some(prepared) = self.prepared_sessions.take() {
-            self.popup_confirmed_for_picker = false;
-            eprintln!("[picker]   sessions ready — starting final (fast) capture.");
-            return Task::perform(picker::finish_all_outputs(prepared), |result| {
-                let msg = match result {
-                    Ok(outputs) => Message::CaptureCompleted(outputs),
-                    Err(e) => Message::CaptureFailed(e.to_string()),
-                };
-                cosmic::Action::App(msg)
-            });
-        }
-
-        if self.sessions_prepare_failed {
-            self.popup_confirmed_for_picker = false;
-            self.sessions_prepare_failed = false;
-            eprintln!("[picker]   sessions failed — falling back to single-shot capture.");
-            return Task::perform(picker::capture_all_outputs(), |result| {
-                let msg = match result {
-                    Ok(outputs) => Message::CaptureCompleted(outputs),
-                    Err(e) => Message::CaptureFailed(e.to_string()),
-                };
-                cosmic::Action::App(msg)
-            });
-        }
-
-        // Popup is closed but sessions aren't ready or failed yet — wait for
-        // `SessionsPrepared` / `SessionsPrepareFailed`.
-        Task::none()
-    }
-
     /// Destroy all overlay surfaces and reopen the popup.
     /// Used when the picker is cancelled or capture fails.
     fn cancel_picker(&mut self) -> Task<cosmic::Action<Message>> {
         eprintln!("[picker] cancel_picker()");
-        eprintln!("[picker]   pending_popup_close was {:?}, clearing", self.pending_popup_close);
-        eprintln!("[picker]   picker state was {:?}",
-            self.picker.as_ref().map(|p| p.state));
-        self.pending_popup_close = None;
-        self.popup_confirmed_for_picker = false;
-        self.prepared_sessions = None;
-        self.sessions_prepare_failed = false;
-        *self.prepared_sessions_slot.lock().unwrap() = None;
+        eprintln!(
+            "[picker]   picker state was {:?}",
+            self.picker.as_ref().map(|p| p.state)
+        );
 
         let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
 
@@ -1357,6 +1164,10 @@ impl AppModel {
             )));
         }
 
-        if tasks.is_empty() { Task::none() } else { Task::batch(tasks) }
+        if tasks.is_empty() {
+            Task::none()
+        } else {
+            Task::batch(tasks)
+        }
     }
 }
