@@ -13,5 +13,4 @@
 
 12. the magnifier circle has overflow of the content inside the small pixels on the edge are seen outside the circle. also at the edege of the circle i think we need i more layer of pixels because there is dark empty region inside the circle like there is no pixel.
 
-
-13. after rewrite check the git diff and compare with old code see if anything redundant still there. check that our code will work as flatpk no native system service used. only things that will work in sandboxed flatpak.
+13. multi thread magnifier rendering and all the stuff upon mouse movement in freezed/capture/selection mode. utilize all available CPU cores to render the magnifier circle efficiently.
