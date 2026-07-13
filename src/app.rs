@@ -739,12 +739,11 @@ impl cosmic::Application for AppModel {
                         let mut i = 0usize;
                         for dy in -HALF..=HALF {
                             for dx in -HALF..=HALF {
-                                let px = ((cx as i32 + dx).max(0))
-                                    .min(capture.width as i32 - 1) as u32;
-                                let py = ((cy as i32 + dy).max(0))
-                                    .min(capture.height as i32 - 1) as u32;
-                                let (r, g, b) =
-                                    capture.pixel_at(px, py).unwrap_or((128, 128, 128));
+                                let px =
+                                    ((cx as i32 + dx).max(0)).min(capture.width as i32 - 1) as u32;
+                                let py =
+                                    ((cy as i32 + dy).max(0)).min(capture.height as i32 - 1) as u32;
+                                let (r, g, b) = capture.pixel_at(px, py).unwrap_or((128, 128, 128));
                                 self.mag_buf[i] = r;
                                 self.mag_buf[i + 1] = g;
                                 self.mag_buf[i + 2] = b;
@@ -1126,7 +1125,6 @@ impl AppModel {
     fn build_magnifier(&self) -> Option<Element<'static, Message>> {
         const GRID_SIZE: usize = 17; // odd for centred crosshair
         const PIXEL_SCALE: f32 = 8.0; // logical pixels per magnified cell
-        const HALF: i32 = (GRID_SIZE / 2) as i32;
         const BELOW_OFFSET: f32 = 14.0;
 
         let picker = self.picker.as_ref()?;
