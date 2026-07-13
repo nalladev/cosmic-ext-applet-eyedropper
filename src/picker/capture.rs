@@ -206,7 +206,7 @@ impl ShmImage {
 ///
 /// This is the async, D-Bus-heavy part of a capture.  Run it in a
 /// `Task::perform` so it doesn't block the UI thread.
-#[allow(clippy::missing_errors_doc)]
+#[allow(clippy::missing_errors_doc, clippy::too_many_lines)]
 pub async fn portal_prepare_all(
     helper: &CaptureHelper,
     restore_token: Option<&str>,
