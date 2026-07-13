@@ -10,6 +10,9 @@ env:
   GITHUB_TOKEN: ${{ github.token }}
   RUST_BACKTRACE: 1
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: ${{ matrix.os }}
@@ -61,43 +64,37 @@ jobs:
           echo $ARCH=./*.tar.gz >> $GITHUB_OUTPUT
           echo $ARCH-deb=./*.deb >> $GITHUB_OUTPUT
           echo $ARCH-rpm=./*.rpm >> $GITHUB_OUTPUT
-      - name: Publish artifacts and release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          files: |
-            ${{ steps.package.outputs.x86_64 }}
-            ${{ steps.package.outputs.aarch64 }}
-            ${{ steps.package.outputs.x86_64-deb }}
-            ${{ steps.package.outputs.aarch64-deb }}
-            ${{ steps.package.outputs.x86_64-rpm }}
-            ${{ steps.package.outputs.aarch64-rpm }}
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create release (if not exists)
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" --title "$TAG" --notes-from-tag || true
+      - name: Upload release assets
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release upload "$TAG" \
+            ${{ steps.package.outputs.x86_64 }} \
+            ${{ steps.package.outputs.aarch64 }} \
+            ${{ steps.package.outputs.x86_64-deb }} \
+            ${{ steps.package.outputs.aarch64-deb }} \
+            ${{ steps.package.outputs.x86_64-rpm }} \
+            ${{ steps.package.outputs.aarch64-rpm }} \
+            --clobber
   checksum:
     runs-on: ubuntu-latest
     needs:
       - build
     steps:
       - name: Download Release Archives
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: >-
           gh release download
-          --repo nalladev/cosmic-ext-applet-eyedropper
+          ${{ github.ref_name }}
+          --repo ${{ github.repository }}
           --pattern '*'
           --dir release
-          ${{ github.ref_name }}
       - name: Create Checksums
         run: |
           cd release
           shasum -a 256 * > ../SHA256SUMS
-      - name: Publish Checksums
-        uses: softprops/action-gh-release@v2.2.1
-        with:
-          draft: false
-          files: SHA256SUMS
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Checksums
+        run: |
+          gh release upload "${{ github.ref_name }}" SHA256SUMS --clobber
