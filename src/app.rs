@@ -80,8 +80,8 @@ enum CopyTarget {
 /// The lens shape is achieved by checking each pixel's centre distance
 /// against the circle radius — no clip path required.
 struct MagnifierProgram {
-    /// Flat array of `(R, G, B)` tuples, row-major.
-    pixels: Vec<(u8, u8, u8)>,
+    /// Flat RGB byte array, row-major (stride 3).
+    pixels: Vec<u8>,
     /// Number of cells per side (odd, e.g. 21).
     grid_size: usize,
     /// Logical-pixel size of each magnified cell.
@@ -180,7 +180,12 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
                     continue;
                 }
 
-                let (r, g, b) = self.pixels[idx];
+                let base = idx * 3;
+                let (r, g, b) = (
+                    self.pixels[base],
+                    self.pixels[base + 1],
+                    self.pixels[base + 2],
+                );
                 let rect = Path::rectangle(
                     cosmic::iced::Point::new(cl, ct),
                     cosmic::iced::Size::new(cr - cl, cb - ct),
@@ -270,6 +275,11 @@ pub struct AppModel {
     copied_target: Option<CopyTarget>,
     /// When the last copy happened (for auto-clearing feedback).
     copied_at: Option<Instant>,
+
+    // ── Magnifier pixel buffer (reused across frames) ───────────────
+    /// Pre-allocated flat RGB buffer for the magnifier grid.
+    /// Avoids a per-frame heap allocation on every pointer move.
+    mag_buf: [u8; 873],
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +380,7 @@ impl cosmic::Application for AppModel {
             pending_overlay_ids: Vec::new(),
             copied_target: None,
             copied_at: None,
+            mag_buf: [0u8; 873],
         };
 
         (app, Task::none())
@@ -709,15 +720,40 @@ impl cosmic::Application for AppModel {
 
             // ── Pointer moved on a picker overlay ─────────────────────
             Message::PointerMoved(id, x, y) => {
-                if let Some(picker) = self.picker.as_mut() {
-                    let result = picker.on_pointer_motion(id, x, y);
-                    if result.is_none() {
-                        eprintln!(
-                            "[picker] PointerMoved({id:?}, {x:.0}, {y:.0}) — FAILED (no output match)"
-                        );
+                // Clone hover info to release the mutable borrow on
+                // self.picker before populating the magnifier buffer.
+                let hover = self
+                    .picker
+                    .as_mut()
+                    .and_then(|p| p.on_pointer_motion(id, x, y));
+
+                if let Some(hover) = hover {
+                    const GRID: usize = 17;
+                    const HALF: i32 = (GRID / 2) as i32;
+                    if let Some(capture) = self
+                        .picker
+                        .as_ref()
+                        .and_then(|p| p.captures.get(hover.output_index))
+                    {
+                        let (cx, cy) = hover.pixel_pos;
+                        let mut i = 0usize;
+                        for dy in -HALF..=HALF {
+                            for dx in -HALF..=HALF {
+                                let px = ((cx as i32 + dx).max(0)) as u32;
+                                let py = ((cy as i32 + dy).max(0)) as u32;
+                                let (r, g, b) =
+                                    capture.pixel_at(px, py).unwrap_or((128, 128, 128));
+                                self.mag_buf[i] = r;
+                                self.mag_buf[i + 1] = g;
+                                self.mag_buf[i + 2] = b;
+                                i += 3;
+                            }
+                        }
                     }
                 } else {
-                    eprintln!("[picker] PointerMoved({id:?}) — ignored, no picker");
+                    eprintln!(
+                        "[picker] PointerMoved({id:?}, {x:.0}, {y:.0}) — FAILED (no output match)"
+                    );
                 }
             }
 
@@ -1094,23 +1130,12 @@ impl AppModel {
         let picker = self.picker.as_ref()?;
         let hover = picker.hover.as_ref()?;
         let capture = picker.captures.get(hover.output_index)?;
-        let (cx, cy) = hover.pixel_pos;
 
         let total = GRID_SIZE as f32 * PIXEL_SCALE;
 
-        // ── Extract pixel grid ────────────────────────────────────────
-        let mut pixels = Vec::with_capacity(GRID_SIZE * GRID_SIZE);
-        for dy in -HALF..=HALF {
-            for dx in -HALF..=HALF {
-                let px = (cx as i32 + dx).max(0) as u32;
-                let py = (cy as i32 + dy).max(0) as u32;
-                pixels.push(capture.pixel_at(px, py).unwrap_or((128, 128, 128)));
-            }
-        }
-
-        // ── Canvas program ─────────────────────────────────────────────
+        // ── Canvas program (reads pre-filled buffer) ─────────────────
         let program = MagnifierProgram {
-            pixels,
+            pixels: self.mag_buf.to_vec(),
             grid_size: GRID_SIZE,
             pixel_size: PIXEL_SCALE,
         };
