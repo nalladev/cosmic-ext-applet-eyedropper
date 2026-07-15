@@ -2,7 +2,7 @@
 Name=Eyedropper
 Comment=Eyedropper applet for cosmic desktop. Pick colours from the screen.
 Type=Application
-Icon=color-select-symbolic
+Icon=io.github.nalladev.CosmicExtAppletEyedropper-symbolic
 Exec=cosmic-ext-applet-eyedropper
 Terminal=false
 StartupNotify=true

@@ -54,6 +54,7 @@ assets = [
   ["target/release/cosmic-ext-applet-eyedropper", "usr/bin/", "755"],
   ["resources/app.desktop", "usr/share/applications/io.github.nalladev.CosmicExtAppletEyedropper.desktop", "644"],
   ["resources/app.metainfo.xml", "usr/share/appdata/io.github.nalladev.CosmicExtAppletEyedropper.metainfo.xml", "644"],
+  ["resources/icon.svg", "usr/share/icons/hicolor/scalable/apps/io.github.nalladev.CosmicExtAppletEyedropper-symbolic.svg", "644"],
 
 ]
 
@@ -63,5 +64,6 @@ assets = [
   { source = "LICENSE", dest = "/usr/share/doc/cosmic-ext-applet-eyedropper/LICENSE", doc = true, mode = "644" },
   { source = "resources/app.desktop", dest = "/usr/share/applications/io.github.nalladev.CosmicExtAppletEyedropper.desktop", mode = "644" },
   { source = "resources/app.metainfo.xml", dest = "/usr/share/appdata/io.github.nalladev.CosmicExtAppletEyedropper.metainfo.xml", mode = "644" },
+  { source = "resources/icon.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.github.nalladev.CosmicExtAppletEyedropper-symbolic.svg", mode = "644" },
 
 ]

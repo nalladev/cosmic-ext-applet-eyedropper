@@ -14,7 +14,7 @@
       HEX, RGB, and HSL.
     </p>
   </description>
-  <icon type="stock">color-select-symbolic</icon>
+  <icon type="stock">io.github.nalladev.CosmicExtAppletEyedropper-symbolic</icon>
   <url type="homepage">https://github.com/nalladev/cosmic-ext-applet-eyedropper</url>
   <url type="bugtracker">https://github.com/nalladev/cosmic-ext-applet-eyedropper/issues</url>
   <url type="vcs-browser">https://github.com/nalladev/cosmic-ext-applet-eyedropper</url>
