@@ -1,6 +1,6 @@
 [package]
 name = "cosmic-ext-applet-eyedropper"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 license = "MPL-2.0"
 description = "Eyedropper applet for cosmic desktop. Pick colours from the screen."
