@@ -13,7 +13,7 @@
       HEX, RGB, and HSL.
     </p>
   </description>
-  <icon type="stock">io.github.nalladev.CosmicExtAppletEyedropper</icon>
+  <icon type="stock">color-select-symbolic</icon>
   <url type="vcs-browser">https://github.com/nalladev/cosmic-ext-applet-eyedropper</url>
   <launchable type="desktop-id">io.github.nalladev.CosmicExtAppletEyedropper.desktop</launchable>
   <provides>
