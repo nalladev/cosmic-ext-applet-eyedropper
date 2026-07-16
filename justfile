@@ -119,8 +119,8 @@ flatpak-build: vendor-flatpak
 
 # Install previously built flatpak
 flatpak-install:
-    flatpak-builder --user --install-only build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+    flatpak install --user --reinstall --assumeyes \
+        build-dir io.github.nalladev.CosmicExtAppletEyedropper
 
 # Build and install flatpak (auto-regenerates cargo sources if Cargo.lock changed)
 flatpak-build-install: vendor-flatpak
