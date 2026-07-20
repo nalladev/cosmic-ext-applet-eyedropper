@@ -4,14 +4,21 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MPL-2.0</project_license>
   <name>Eyedropper</name>
+  <name xml:lang="cs">Kapátko</name>
   <developer_name>Joel</developer_name>
   <summary>Eyedropper applet for cosmic desktop. Pick colours from the screen.</summary>
+  <summary xml:lang="cs">Applet kapátka pro prostředí COSMIC. Vybírejte barvy přímo z obrazovky.</summary>
   <description>
     <p>
       Pick colors from anywhere on your screen with the COSMIC Eyedropper applet.
       Click the eyedropper icon in the panel, then click on any pixel to capture
       its color. The selected color can be copied in multiple formats including
       HEX, RGB, and HSL.
+    </p>
+    <p xml:lang="cs">
+      Vybírejte barvy z libovolného místa na obrazovce pomocí COSMIC appletu Kapátko.
+      Klikněte na ikonu kapátka v panelu a poté na libovolný pixel, jehož barvu chcete
+      zachytit. Vybranou barvu lze zkopírovat v několika formátech včetně HEX, RGB a HSL.
     </p>
   </description>
   <icon type="stock">io.github.nalladev.CosmicExtAppletEyedropper-symbolic</icon>
@@ -21,10 +28,12 @@
   <screenshots>
     <screenshot type="default">
       <caption>Eyedropper popup showing color details in HEX, RGB, and HSL</caption>
+      <caption xml:lang="cs">Vyskakovací okno kapátka zobrazující podrobnosti o barvě ve formátech HEX, RGB a HSL</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-1.png</image>
     </screenshot>
     <screenshot>
       <caption>Color picker overlay for selecting colors from anywhere on screen</caption>
+      <caption xml:lang="cs">Překryvná vrstva pro výběr barev z libovolného místa na obrazovce</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-2.png</image>
     </screenshot>
   </screenshots>
