@@ -140,33 +140,8 @@ tag version message='':
     git add Cargo.lock
     git commit -m 'release: {{version}}'
     
-    # Append to NEWS file
-    DATE=$(date +%Y-%m-%d)
-    if [ -n "{{message}}" ]; then
-        cat <<EOF >> NEWS
-
-{{version}} ({{DATE}})
--------------------------
-{{message}}
-EOF
-    else
-        cat <<EOF >> NEWS
-
-{{version}} ({{DATE}})
--------------------------
-- Release {{version}}
-EOF
-    fi
-    git add NEWS
-    
-    # Generate <releases> in metainfo from NEWS
-    appstreamcli news-to-metainfo NEWS resources/app.metainfo.xml
-    git add resources/app.metainfo.xml
-    git commit --amend --no-edit
+    # Append to NEWS file and generate metainfo releases
+    bash -c 'DATE=$(date +%Y-%m-%d); if [ -n "{{message}}" ]; then printf '\n%s (%s)\n%s\n%s\n' "{{version}}" "$DATE" "-------------------------" "{{message}}" >> NEWS; else printf '\n%s (%s)\n%s\n- Release %s\n' "{{version}}" "$DATE" "-------------------------" "{{version}}" >> NEWS; fi; git add NEWS; appstreamcli news-to-metainfo NEWS resources/app.metainfo.xml; git add resources/app.metainfo.xml; git commit --amend --no-edit'
     
     # Create annotated tag with message
-    if [ -n "{{message}}" ]; then
-        git tag -a {{version}} -m "$({{message}})"
-    else
-        git tag -a {{version}} -m "Release {{version}}"
-    fi
+    bash -c 'if [ -n "{{message}}" ]; then git tag -a {{version}} -m "{{message}}"; else git tag -a {{version}} -m "Release {{version}}"; fi'
