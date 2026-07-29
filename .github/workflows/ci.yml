@@ -93,7 +93,7 @@ jobs:
 
       - name: Install Python dependencies for generator
         run: |
-          pip3 install aiohttp
+          pip3 install aiohttp tomlkit PyYAML
 
       - name: Check cargo-sources.json is up to date
         run: |
