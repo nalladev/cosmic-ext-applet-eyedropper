@@ -19,7 +19,7 @@ jobs:
       - name: Install flatpak-builder and appstreamcli
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak-builder python3 appstreamcli
+          sudo apt-get install -y flatpak-builder python3 appstream
 
       - name: Validate manifest syntax
         run: |
