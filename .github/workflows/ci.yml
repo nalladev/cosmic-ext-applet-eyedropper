@@ -91,6 +91,10 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/flatpak/flatpak-builder-tools.git
 
+      - name: Install Python dependencies for generator
+        run: |
+          pip3 install aiohttp
+
       - name: Check cargo-sources.json is up to date
         run: |
           OUT="flatpak/cargo-sources.json"
