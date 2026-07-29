@@ -21,10 +21,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak-builder python3 appstream
 
-      - name: Generate cargo-sources.json
-        run: |
-          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o flatpak/cargo-sources.json Cargo.lock
-
       - name: Validate manifest syntax
         run: |
           flatpak-builder --show-manifest flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
