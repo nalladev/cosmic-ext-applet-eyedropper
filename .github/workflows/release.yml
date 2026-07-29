@@ -32,10 +32,12 @@ jobs:
     runs-on: ${{matrix.os}}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Install build dependencies
         run: |
           sudo apt update
-          sudo apt install -y libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev libpipewire-0.3-dev libinput-dev
+          sudo apt install -y libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev libpipewire-0.3-dev libinput-dev appstreamcli
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@v1.15.0
       - name: Install packaging plugins

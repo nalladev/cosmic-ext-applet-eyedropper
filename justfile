@@ -131,11 +131,42 @@ flatpak-build-install: vendor-flatpak
 flatpak-uninstall:
     flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
 
-# Bump cargo version, create git commit, and create tag
-tag version:
+# Bump cargo version, create git commit, and create tag with message
+# Usage: just tag 1.2.0 "Release notes here"
+tag version message='':
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
     cargo check
     cargo clean
     git add Cargo.lock
     git commit -m 'release: {{version}}'
-    git tag -a {{version}} -m ''
+    
+    # Append to NEWS file
+    DATE=$(date +%Y-%m-%d)
+    if [ -n "{{message}}" ]; then
+        cat <<EOF >> NEWS
+
+{{version}} ({{DATE}})
+-------------------------
+{{message}}
+EOF
+    else
+        cat <<EOF >> NEWS
+
+{{version}} ({{DATE}})
+-------------------------
+- Release {{version}}
+EOF
+    fi
+    git add NEWS
+    
+    # Generate <releases> in metainfo from NEWS
+    appstreamcli news-to-metainfo NEWS resources/app.metainfo.xml
+    git add resources/app.metainfo.xml
+    git commit --amend --no-edit
+    
+    # Create annotated tag with message
+    if [ -n "{{message}}" ]; then
+        git tag -a {{version}} -m "$({{message}})"
+    else
+        git tag -a {{version}} -m "Release {{version}}"
+    fi
