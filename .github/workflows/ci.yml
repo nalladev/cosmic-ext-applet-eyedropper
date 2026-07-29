@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    name: Cargo Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cargo check
+        run: cargo check --locked
+
+  build:
+    name: Cargo Build (Release)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cargo build (release)
+        run: cargo build --release --locked
+
+  validate-flatpak:
+    name: Validate Flatpak Manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install flatpak-builder and appstreamcli
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak-builder python3 appstream
+
+      - name: Validate manifest syntax
+        run: |
+          flatpak-builder --show-manifest flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
+
+      - name: Validate AppStream metadata
+        run: |
+          appstreamcli validate resources/app.metainfo.xml
+
+      - name: Check cargo-sources.json is up to date
+        run: |
+          OUT="flatpak/cargo-sources.json"
+          REGEN="flatpak/cargo-sources-regen.json"
+
+          if [ ! -f "$OUT" ]; then
+            echo "Error: $OUT is missing. Run 'just vendor-flatpak' to generate it."
+            exit 1
+          fi
+
+          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o "$REGEN" Cargo.lock
+
+          if ! cmp -s "$OUT" "$REGEN"; then
+            echo "Error: $OUT is out of date with Cargo.lock."
+            echo "Run 'just vendor-flatpak' locally and commit the updated file."
+            diff -u "$OUT" "$REGEN" || true
+            rm "$REGEN"
+            exit 1
+          fi
+
+          rm "$REGEN"
+          echo "$OUT is up to date."
+

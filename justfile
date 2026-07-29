@@ -132,13 +132,15 @@ flatpak-uninstall:
     flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
 
 # Bump cargo version, create git commit, and create tag with message
-# Usage: just tag 1.2.0 "Release notes here"
+# Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
 tag version message='':
-    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "{{version}}"/' '{}' \; -exec git add '{}' \;
+    # Normalize version: strip leading 'v' if present
+    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'`
+    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"'"$norm_version"'"'/' '{}' \; -exec git add '{}' \;
     cargo check
     cargo clean
     git add Cargo.lock
-    git commit -m 'release: {{version}}'
+    git commit -m 'release: '"$norm_version"
     
     # Create annotated tag with message (with v prefix for workflow trigger)
-    bash -c 'if [ -n "{{message}}" ]; then git tag -a v{{version}} -m "{{message}}"; else git tag -a v{{version}} -m "Release {{version}}"; fi'
+    bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
