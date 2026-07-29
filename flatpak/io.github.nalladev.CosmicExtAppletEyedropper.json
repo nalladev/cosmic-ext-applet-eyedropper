@@ -9,9 +9,8 @@
     "--share=ipc",
     "--socket=wayland",
     "--socket=fallback-x11",
+    "--talk-name=com.system76.CosmicSettingsDaemon.*",
     "--talk-name=com.system76.CosmicSettingsDaemon",
-    "--talk-name=com.system76.CosmicSettingsDaemon.Config",
-    "--talk-name=com.system76.CosmicSettingsDaemon.Config.*",
     "--talk-name=org.freedesktop.portal.Desktop",
     "--filesystem=xdg-config/cosmic:rw",
     "--filesystem=xdg-run/pipewire-0"
