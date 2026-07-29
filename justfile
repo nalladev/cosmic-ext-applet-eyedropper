@@ -140,5 +140,5 @@ tag version message='':
     git add Cargo.lock
     git commit -m 'release: {{version}}'
     
-    # Create annotated tag with message
-    bash -c 'if [ -n "{{message}}" ]; then git tag -a {{version}} -m "{{message}}"; else git tag -a {{version}} -m "Release {{version}}"; fi'
+    # Create annotated tag with message (with v prefix for workflow trigger)
+    bash -c 'if [ -n "{{message}}" ]; then git tag -a v{{version}} -m "{{message}}"; else git tag -a v{{version}} -m "Release {{version}}"; fi'
