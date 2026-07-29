@@ -1,0 +1,12 @@
+app-title = Kapátko
+about = O aplikaci
+view = Zobrazení
+welcome = Vítejte v COSMIC! ✨
+page-id = Stránka { $num }
+git-description = Git commit {$hash} ze dne {$date}
+hex = HEX
+rgb = RGB
+hsl = HSL
+select-colour = Vybrat barvu
+no-color-selected = Nebyla vybrána žádná barva
+copied = Zkopírováno
