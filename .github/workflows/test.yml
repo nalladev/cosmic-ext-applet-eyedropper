@@ -1,4 +1,4 @@
-name: Test Builds
+name: Test Flatpak Build
 
 on:
   push:
@@ -6,56 +6,7 @@ on:
       - main
       - fixes
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_BACKTRACE: 1
-
 jobs:
-  build:
-    name: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            target_rustflags: ""
-    runs-on: ${{matrix.os}}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Install build dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev libpipewire-0.3-dev libinput-dev appstream
-      - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@v1.15.0
-      - name: Install packaging plugins
-        run: |
-          cargo binstall just
-          cargo binstall cargo-deb
-          cargo binstall cargo-generate-rpm
-      - name: Build packages
-        run: |
-          just build-release
-          just build-deb
-          just build-rpm
-
-          NAME="cosmic-ext-applet-eyedropper"
-
-          mkdir ./$NAME
-          cp ./target/release/$NAME ./resources/*.desktop ./resources/*.metainfo.xml ./resources/*.svg ./resources/install.sh  ./$NAME/
-          strip -s ./$NAME/$NAME
-          tar -czvf $NAME-x86_64.tar.gz $NAME
-
-          cp ./target/debian/*.deb ./
-          cp ./target/generate-rpm/*.rpm ./
-
-          ls -lh *.tar.gz *.deb *.rpm
-
   build-flatpak:
     name: Build Flatpak
     runs-on: ubuntu-latest
