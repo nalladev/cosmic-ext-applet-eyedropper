@@ -284,7 +284,7 @@ pub struct AppModel {
     // ── Magnifier zoom state ────────────────────────────────────────
     /// Current zoom level (logical pixels per magnified cell).
     zoom_level: f32,
-    /// Accumulated scroll delta — applied once per frame via FrameTick.
+    /// Accumulated scroll delta — applied once per frame via `FrameTick`.
     pending_zoom_delta: f32,
 }
 
@@ -1131,10 +1131,9 @@ impl AppModel {
         // Event layer: transparent overlay for pointer tracking.
         let on_scroll = move |delta: mouse::ScrollDelta| {
             let y = match delta {
-                // Lines: typical mouse wheel notch = ±1.0.
-                mouse::ScrollDelta::Lines { y, .. } => y,
-                // Pixels: touchpad pinch / two-finger scroll.
-                mouse::ScrollDelta::Pixels { y, .. } => y,
+                // Lines (mouse wheel) or Pixels (touchpad two-finger scroll).
+                mouse::ScrollDelta::Lines { y, .. }
+                | mouse::ScrollDelta::Pixels { y, .. } => y,
             };
             Message::MagnifierZoom(y)
         };
