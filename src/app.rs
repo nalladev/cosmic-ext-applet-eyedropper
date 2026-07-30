@@ -9,6 +9,7 @@ use crate::fl;
 use crate::picker::PickerController;
 use crate::picker::{self, CapturedOutput, Color};
 use crate::widget::keyboard_wrapper::KeyboardWrapper;
+use crate::widget::magnifier::{MagnifierProgram, MagnifierState};
 use cosmic::cctk::sctk::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer};
 use cosmic::cctk::wayland_client::protocol::wl_output::WlOutput;
 use cosmic::iced::clipboard;
@@ -75,162 +76,6 @@ enum CopyTarget {
 // Magnifier canvas program
 // ---------------------------------------------------------------------------
 
-/// Renders a circular magnified pixel grid centred on the cursor.
-///
-/// The lens shape is achieved by checking each pixel's centre distance
-/// against the circle radius — no clip path required.
-struct MagnifierProgram {
-    /// Flat RGB byte array, row-major (stride 3).
-    pixels: Vec<u8>,
-    /// Number of cells per side (odd, e.g. 21).
-    grid_size: usize,
-    /// Logical-pixel size of each magnified cell.
-    pixel_size: f32,
-}
-
-impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
-    type State = ();
-
-    #[allow(clippy::cast_precision_loss, clippy::similar_names)]
-    fn draw(
-        &self,
-        _state: &(),
-        renderer: &cosmic::Renderer,
-        theme: &cosmic::Theme,
-        bounds: cosmic::iced::Rectangle,
-        _cursor: mouse::Cursor,
-    ) -> Vec<canvas::Geometry> {
-        use canvas::{Path, Stroke};
-
-        let cosmic = theme.cosmic();
-        let fg = cosmic::iced::Color::from(cosmic.on_bg_color());
-        let bg = cosmic::iced::Color::from(cosmic.bg_color());
-
-        let mut frame = canvas::Frame::new(renderer, bounds.size());
-        let cell = self.pixel_size;
-        let total = self.grid_size as f32 * cell;
-        let radius = total / 2.0;
-        let centre = cosmic::iced::Point::new(radius, radius);
-
-        // 1. Semi-transparent circular background matching the theme.
-        let circle_bg = Path::circle(centre, radius);
-        frame.fill(&circle_bg, cosmic::iced::Color { a: 0.75, ..bg });
-
-        // 2. Draw each magnified pixel, clipped to the circle boundary.
-        //
-        // Two problems exist with a naive centre-point inclusion test:
-        //   a) Overflow: edge cells whose centre is just inside the circle are
-        //      drawn as full rectangles, so their corners bleed outside the
-        //      border stroke.
-        //   b) Dark gap: cells whose centre is just outside the circle but
-        //      whose rectangle still overlaps it are excluded entirely.
-        //
-        // Fix: use a closest-point overlap test for inclusion (fixes b), then
-        // clip each drawn rectangle to the horizontal and vertical extents of
-        // the circle at the pixel centre (fixes a).  For centre-outside pixels
-        // the slab corner always falls inside the circle (no overflow).  For
-        // centre-inside pixels the residual overflow is sub-pixel and
-        // decreases as pixel_size grows (higher zoom).
-        for row in 0..self.grid_size {
-            for col in 0..self.grid_size {
-                let idx = row * self.grid_size + col;
-                if idx >= self.pixels.len() {
-                    continue;
-                }
-
-                // Pixel bounding rect in canvas coordinates.
-                let left = col as f32 * cell;
-                let top = row as f32 * cell;
-                let right = left + cell;
-                let bottom = top + cell;
-
-                // Closest point on the rect to the circle centre.
-                let cx = radius.clamp(left, right);
-                let cy = radius.clamp(top, bottom);
-                let cdx = cx - radius;
-                let cdy = cy - radius;
-                // Skip pixels whose rectangle doesn't overlap the circle.
-                if cdx * cdx + cdy * cdy > radius * radius {
-                    continue;
-                }
-
-                // Pixel centre and its offset from the circle centre.
-                let pcx = left + cell * 0.5;
-                let pcy = top + cell * 0.5;
-                let dx = pcx - radius;
-                let dy = pcy - radius;
-
-                // Horizontal span of the circle at this pixel's centre y,
-                // and vertical span at this pixel's centre x.
-                let span_x_sq = radius * radius - dy * dy;
-                let span_y_sq = radius * radius - dx * dx;
-                if span_x_sq < 0.0 || span_y_sq < 0.0 {
-                    continue;
-                }
-                let span_x = span_x_sq.sqrt();
-                let span_y = span_y_sq.sqrt();
-
-                // Clip the draw rectangle to those spans.
-                let cl = (radius - span_x).max(left);
-                let cr = (radius + span_x).min(right);
-                let ct = (radius - span_y).max(top);
-                let cb = (radius + span_y).min(bottom);
-
-                if cr <= cl || cb <= ct {
-                    continue;
-                }
-
-                let base = idx * 3;
-                let (r, g, b) = (
-                    self.pixels[base],
-                    self.pixels[base + 1],
-                    self.pixels[base + 2],
-                );
-                let rect = Path::rectangle(
-                    cosmic::iced::Point::new(cl, ct),
-                    cosmic::iced::Size::new(cr - cl, cb - ct),
-                );
-                frame.fill(&rect, cosmic::iced::Color::from_rgb8(r, g, b));
-            }
-        }
-
-        // 3. Small crosshair at centre (3 cells wide — stays well inside circle).
-        let half = self.grid_size / 2;
-        let cx = half as f32 * cell + cell / 2.0;
-        let cy = half as f32 * cell + cell / 2.0;
-
-        let cross_extent = cell * 2.0; // extends 2 cells from centre
-        let h_line = Path::line(
-            cosmic::iced::Point::new(cx - cross_extent, cy),
-            cosmic::iced::Point::new(cx + cross_extent, cy),
-        );
-        let v_line = Path::line(
-            cosmic::iced::Point::new(cx, cy - cross_extent),
-            cosmic::iced::Point::new(cx, cy + cross_extent),
-        );
-
-        let crosshair_style = Stroke::default().with_color(fg).with_width(1.5);
-        frame.stroke(&h_line, crosshair_style);
-        frame.stroke(&v_line, crosshair_style);
-
-        // 4. Centre-pixel highlight (bright border).
-        let centre_rect = Path::rectangle(
-            cosmic::iced::Point::new(half as f32 * cell, half as f32 * cell),
-            cosmic::iced::Size::new(cell, cell),
-        );
-        frame.stroke(
-            &centre_rect,
-            Stroke::default().with_color(fg).with_width(2.0),
-        );
-
-        // 5. Outer circular border.
-        let border = Path::circle(centre, radius - 0.5);
-        frame.stroke(&border, Stroke::default().with_color(fg).with_width(1.5));
-
-        vec![frame.into_geometry()]
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Application model
 // ---------------------------------------------------------------------------
@@ -276,16 +121,8 @@ pub struct AppModel {
     /// When the last copy happened (for auto-clearing feedback).
     copied_at: Option<Instant>,
 
-    // ── Magnifier pixel buffer (reused across frames) ───────────────
-    /// Pre-allocated flat RGB buffer for the magnifier grid.
-    /// Avoids a per-frame heap allocation on every pointer move.
-    mag_buf: [u8; 873],
-
-    // ── Magnifier zoom state ────────────────────────────────────────
-    /// Current zoom level (logical pixels per magnified cell).
-    zoom_level: f32,
-    /// Accumulated scroll delta — applied once per frame via `FrameTick`.
-    pending_zoom_delta: f32,
+    // ── Magnifier state ─────────────────────────────────────────────
+    magnifier: MagnifierState,
 }
 
 // ---------------------------------------------------------------------------
@@ -392,9 +229,7 @@ impl cosmic::Application for AppModel {
             pending_overlay_ids: Vec::new(),
             copied_target: None,
             copied_at: None,
-            mag_buf: [0u8; 873],
-            zoom_level: 8.0,
-            pending_zoom_delta: 0.0,
+            magnifier: MagnifierState::new(),
         };
 
         (app, Task::none())
@@ -535,8 +370,7 @@ impl cosmic::Application for AppModel {
                 self.sampled = None;
                 self.copied_target = None;
                 self.copied_at = None;
-                self.zoom_level = 8.0;
-                self.pending_zoom_delta = 0.0;
+                self.magnifier.reset();
 
                 // Start capture in background
                 let capture_task = Task::perform(
@@ -767,9 +601,9 @@ impl cosmic::Application for AppModel {
                                     .min(capture.height.cast_signed() - 1)
                                     .cast_unsigned();
                                 let (r, g, b) = capture.pixel_at(px, py).unwrap_or((128, 128, 128));
-                                self.mag_buf[i] = r;
-                                self.mag_buf[i + 1] = g;
-                                self.mag_buf[i + 2] = b;
+                                self.magnifier.buf[i] = r;
+                                self.magnifier.buf[i + 1] = g;
+                                self.magnifier.buf[i + 2] = b;
                                 i += 3;
                             }
                         }
@@ -840,18 +674,19 @@ impl cosmic::Application for AppModel {
                 return Task::none().map(cosmic::Action::App);
             }
 
-                        // ── Magnifier zoom (scroll / pinch on overlay) ─────────────
+            // ── Magnifier zoom (scroll / pinch on overlay) ─────────────
             Message::MagnifierZoom(delta_y) => {
                 // Accumulate — applied once per frame in FrameTick.
-                self.pending_zoom_delta += delta_y;
+                self.magnifier.pending_zoom_delta += delta_y;
             }
 
             // ── Frame tick — apply throttled zoom ───────────────────
             Message::FrameTick => {
-                let d = self.pending_zoom_delta;
+                let d = self.magnifier.pending_zoom_delta;
                 if d != 0.0 {
-                    self.pending_zoom_delta = 0.0;
-                    self.zoom_level = (self.zoom_level - d * 0.75).clamp(8.0, 24.0);
+                    self.magnifier.pending_zoom_delta = 0.0;
+                    self.magnifier.zoom_level =
+                        (self.magnifier.zoom_level - d * 0.75).clamp(8.0, 24.0);
                 }
             }
 
@@ -1132,8 +967,7 @@ impl AppModel {
         let on_scroll = move |delta: mouse::ScrollDelta| {
             let y = match delta {
                 // Lines (mouse wheel) or Pixels (touchpad two-finger scroll).
-                mouse::ScrollDelta::Lines { y, .. }
-                | mouse::ScrollDelta::Pixels { y, .. } => y,
+                mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => y,
             };
             Message::MagnifierZoom(y)
         };
@@ -1186,12 +1020,12 @@ impl AppModel {
         let hover = picker.hover.as_ref()?;
         let capture = picker.captures.get(hover.output_index)?;
 
-        let pixel_size = self.zoom_level;
+        let pixel_size = self.magnifier.zoom_level;
         let total = GRID_SIZE as f32 * pixel_size;
 
         // ── Canvas program (reads pre-filled buffer) ─────────────────
         let program = MagnifierProgram {
-            pixels: self.mag_buf.to_vec(),
+            pixels: self.magnifier.buf.to_vec(),
             grid_size: GRID_SIZE,
             pixel_size,
         };
