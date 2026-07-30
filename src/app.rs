@@ -129,8 +129,8 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
         // clip each drawn rectangle to the horizontal and vertical extents of
         // the circle at the pixel centre (fixes a).  For centre-outside pixels
         // the slab corner always falls inside the circle (no overflow).  For
-        // centre-inside pixels the residual overflow is sub-pixel (< 0.2 px
-        // for the default 17×17 / 8 px configuration).
+        // centre-inside pixels the residual overflow is sub-pixel and
+        // decreases as pixel_size grows (higher zoom).
         for row in 0..self.grid_size {
             for col in 0..self.grid_size {
                 let idx = row * self.grid_size + col;
@@ -280,6 +280,12 @@ pub struct AppModel {
     /// Pre-allocated flat RGB buffer for the magnifier grid.
     /// Avoids a per-frame heap allocation on every pointer move.
     mag_buf: [u8; 873],
+
+    // ── Magnifier zoom state ────────────────────────────────────────
+    /// Current zoom level (logical pixels per magnified cell).
+    zoom_level: f32,
+    /// Accumulated scroll delta — applied once per frame via FrameTick.
+    pending_zoom_delta: f32,
 }
 
 // ---------------------------------------------------------------------------
@@ -312,6 +318,12 @@ pub enum Message {
     PointerMoved(Id, f32, f32),
     /// Pointer clicked on a picker overlay window.
     PointerClicked(Id),
+
+    // ── Magnifier zoom ────────────────────────────────────────────────
+    /// Scroll-delta from a mouse wheel or touchpad pinch.
+    MagnifierZoom(f32),
+    /// Periodic frame tick — applies pending zoom deltas.
+    FrameTick,
 
     // ── Clipboard copy ───────────────────────────────────────────────
     /// Copy the HEX string to the clipboard.
@@ -381,6 +393,8 @@ impl cosmic::Application for AppModel {
             copied_target: None,
             copied_at: None,
             mag_buf: [0u8; 873],
+            zoom_level: 8.0,
+            pending_zoom_delta: 0.0,
         };
 
         (app, Task::none())
@@ -445,6 +459,8 @@ impl cosmic::Application for AppModel {
                 )) => Some(Message::OutputEvent(Box::new(o_event), wl_output)),
                 _ => None,
             }),
+            // ~60 fps tick for throttled zoom application.
+            cosmic::iced::time::every(Duration::from_millis(16)).map(|_| Message::FrameTick),
         ];
 
         Subscription::batch(subs)
@@ -519,6 +535,8 @@ impl cosmic::Application for AppModel {
                 self.sampled = None;
                 self.copied_target = None;
                 self.copied_at = None;
+                self.zoom_level = 8.0;
+                self.pending_zoom_delta = 0.0;
 
                 // Start capture in background
                 let capture_task = Task::perform(
@@ -822,6 +840,22 @@ impl cosmic::Application for AppModel {
                 return Task::none().map(cosmic::Action::App);
             }
 
+                        // ── Magnifier zoom (scroll / pinch on overlay) ─────────────
+            Message::MagnifierZoom(delta_y) => {
+                // Accumulate — applied once per frame in FrameTick.
+                self.pending_zoom_delta += delta_y;
+                eprintln!("[zoom] delta={delta_y:.2}");
+            }
+
+            // ── Frame tick — apply throttled zoom ───────────────────
+            Message::FrameTick => {
+                let d = self.pending_zoom_delta;
+                if d != 0.0 {
+                    self.pending_zoom_delta = 0.0;
+                    self.zoom_level = (self.zoom_level - d * 0.75).clamp(8.0, 24.0);
+                }
+            }
+
             // ── Clipboard copy ─────────────────────────────────────────
             Message::CopyHex => {
                 let hex = self.hex.clone();
@@ -1096,6 +1130,15 @@ impl AppModel {
         };
 
         // Event layer: transparent overlay for pointer tracking.
+        let on_scroll = move |delta: mouse::ScrollDelta| {
+            let y = match delta {
+                // Lines: typical mouse wheel notch = ±1.0.
+                mouse::ScrollDelta::Lines { y, .. } => y,
+                // Pixels: touchpad pinch / two-finger scroll.
+                mouse::ScrollDelta::Pixels { y, .. } => y,
+            };
+            Message::MagnifierZoom(y)
+        };
         let event_layer = MouseArea::new(
             container(space::horizontal())
                 .width(Length::Fill)
@@ -1103,6 +1146,7 @@ impl AppModel {
         )
         .on_move(on_move)
         .on_press(Message::PointerClicked(id))
+        .on_scroll(on_scroll)
         .interaction(mouse::Interaction::Crosshair);
 
         let mut stack = Stack::new();
@@ -1138,20 +1182,20 @@ impl AppModel {
     )]
     fn build_magnifier(&self) -> Option<Element<'static, Message>> {
         const GRID_SIZE: usize = 17; // odd for centred crosshair
-        const PIXEL_SCALE: f32 = 8.0; // logical pixels per magnified cell
         const BELOW_OFFSET: f32 = 14.0;
 
         let picker = self.picker.as_ref()?;
         let hover = picker.hover.as_ref()?;
         let capture = picker.captures.get(hover.output_index)?;
 
-        let total = GRID_SIZE as f32 * PIXEL_SCALE;
+        let pixel_size = self.zoom_level;
+        let total = GRID_SIZE as f32 * pixel_size;
 
         // ── Canvas program (reads pre-filled buffer) ─────────────────
         let program = MagnifierProgram {
             pixels: self.mag_buf.to_vec(),
             grid_size: GRID_SIZE,
-            pixel_size: PIXEL_SCALE,
+            pixel_size,
         };
 
         let mag_canvas = canvas::Canvas::<_, Message, cosmic::Theme>::new(program)
