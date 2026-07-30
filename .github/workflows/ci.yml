@@ -7,63 +7,17 @@ on:
     branches: [main]
 
 jobs:
-  check:
-    name: Cargo Check
+  linting:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgles2-mesa-dev libdbus-1-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cargo check
-        run: cargo check --locked
-
-  build:
-    name: Cargo Build (Release)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgles2-mesa-dev libdbus-1-dev
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cargo build (release)
-        run: cargo build --release --locked
+          components: clippy
+      - name: Install dependencies
+        run: scripts/install-deps.sh
+      - name: Run clippy
+        run: cargo clippy --all --all-targets --all-features -- -D warnings
 
   validate-flatpak:
     name: Validate Flatpak Manifest
@@ -117,4 +71,3 @@ jobs:
 
           rm "$REGEN"
           echo "$OUT is up to date."
-
