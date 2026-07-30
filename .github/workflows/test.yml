@@ -1,0 +1,87 @@
+name: Test Builds
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            target_rustflags: ""
+    runs-on: ${{matrix.os}}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev libpipewire-0.3-dev libinput-dev appstream
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.15.0
+      - name: Install packaging plugins
+        run: |
+          cargo binstall just
+          cargo binstall cargo-deb
+          cargo binstall cargo-generate-rpm
+      - name: Build packages
+        run: |
+          just build-release
+          just build-deb
+          just build-rpm
+
+          NAME="cosmic-ext-applet-eyedropper"
+
+          mkdir ./$NAME
+          cp ./target/release/$NAME ./resources/*.desktop ./resources/*.metainfo.xml ./resources/*.svg ./resources/install.sh  ./$NAME/
+          strip -s ./$NAME/$NAME
+          tar -czvf $NAME-x86_64.tar.gz $NAME
+
+          ls -lh *.tar.gz *.deb *.rpm
+
+  build-flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak-builder
+
+      - name: Install Flatpak runtime and SDK
+        run: |
+          flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --force-clean --install-deps-from=flathub \
+            --install-deps-only build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+          flatpak-builder --force-clean --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ \
+            build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+
+      - name: Create Flatpak bundle
+        run: |
+          flatpak build-bundle build-dir cosmic-ext-applet-eyedropper.flatpak \
+            io.github.nalladev.CosmicExtAppletEyedropper
+
+      - name: Show Flatpak artifact
+        run: ls -lh cosmic-ext-applet-eyedropper.flatpak
