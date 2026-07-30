@@ -130,12 +130,9 @@ flatpak-uninstall:
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
 tag version message='':
     # Normalize version: strip leading 'v' if present
-    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'`
-    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"'"$norm_version"'"'/' '{}' \; -exec git add '{}' \;
-    cargo check
-    cargo clean
-    git add Cargo.lock
-    git commit -m 'release: '"$norm_version"
-    
-    # Create annotated tag with message (with v prefix for workflow trigger)
+    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
+    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"$norm_version"'"/' '{}' \; -exec git add '{}' \; && \
+    cargo check && \
+    git add Cargo.lock && \
+    git commit -m 'release: '"$norm_version" && \
     bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
