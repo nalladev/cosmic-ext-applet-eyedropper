@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - fixes
 
 env:
   CARGO_TERM_COLOR: always
@@ -49,6 +50,9 @@ jobs:
           cp ./target/release/$NAME ./resources/*.desktop ./resources/*.metainfo.xml ./resources/*.svg ./resources/install.sh  ./$NAME/
           strip -s ./$NAME/$NAME
           tar -czvf $NAME-x86_64.tar.gz $NAME
+
+          cp ./target/debian/*.deb ./
+          cp ./target/generate-rpm/*.rpm ./
 
           ls -lh *.tar.gz *.deb *.rpm
 

@@ -1,66 +1,77 @@
-name: Release
+name: release
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+
+env:
+  CARGO_TERM_COLOR: always
+  GITHUB_TOKEN: ${{ github.token }}
+  RUST_BACKTRACE: 1
+
+permissions:
+  contents: write
 
 jobs:
-  check:
-    name: Cargo Check
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Cargo check
-        run: cargo check --locked
-
   build:
-    name: Cargo Build (Release)
-    runs-on: ubuntu-latest
-    needs: check
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-gnu
+        include:
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+            target_rustflags: ""
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            target_rustflags: ""
+    runs-on: ${{matrix.os}}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      - name: Install build dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev libpipewire-0.3-dev libinput-dev appstream
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.15.0
+      - name: Install packaging plugins
+        run: |
+          cargo binstall just
+          cargo binstall cargo-deb
+          cargo binstall cargo-generate-rpm
+      - name: Build packages
+        run: |
+          just build-release
+          just build-deb
+          just build-rpm
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+          NAME="cosmic-ext-applet-eyedropper"
+          ARCH=`uname -m`
 
-      - name: Cache cargo registry
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          mkdir ./$NAME
+          cp ./target/release/$NAME ./resources/*.desktop ./resources/*.metainfo.xml ./resources/*.svg ./resources/install.sh  ./$NAME/
+          strip -s ./$NAME/$NAME
+          tar -czvf $NAME-$ARCH.tar.gz $NAME
 
-      - name: Cargo build (release)
-        run: cargo build --release --locked
+          cp ./target/debian/*.deb ./
+          cp ./target/generate-rpm/*.rpm ./
 
-      - name: Upload binary artifact
+          mkdir -p artifacts
+          cp $NAME-$ARCH.tar.gz artifacts/
+          cp ./*.deb artifacts/
+          cp ./*.rpm artifacts/
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: cosmic-ext-applet-eyedropper-x86_64
-          path: target/release/cosmic-ext-applet-eyedropper
-          retention-days: 30
+          name: ${{ matrix.target }}
+          path: artifacts/
+          retention-days: 1
 
   build-flatpak:
     name: Build Flatpak
@@ -76,9 +87,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak-builder
 
+      - name: Add flathub remote
+        run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
       - name: Install Flatpak runtime and SDK
         run: |
-          flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+          sudo flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
             org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
 
       - name: Build Flatpak
@@ -104,19 +118,30 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     needs: [build, build-flatpak]
-    permissions:
-      contents: write
     steps:
-      - name: Download build artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            artifacts/cosmic-ext-applet-eyedropper-x86_64/cosmic-ext-applet-eyedropper
-            artifacts/cosmic-ext-applet-eyedropper-flatpak/cosmic-ext-applet-eyedropper.flatpak
-          draft: true
-          generate_release_notes: true
+      - name: Create release
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release create "$TAG" --title "$TAG" --notes-from-tag
+      - name: Upload release assets
+        run: |
+          TAG="${{ github.ref_name }}"
+          gh release upload "$TAG" \
+            artifacts/aarch64-unknown-linux-gnu/*.tar.gz \
+            artifacts/x86_64-unknown-linux-gnu/*.tar.gz \
+            artifacts/aarch64-unknown-linux-gnu/*.deb \
+            artifacts/x86_64-unknown-linux-gnu/*.deb \
+            artifacts/aarch64-unknown-linux-gnu/*.rpm \
+            artifacts/x86_64-unknown-linux-gnu/*.rpm \
+            artifacts/cosmic-ext-applet-eyedropper-flatpak/cosmic-ext-applet-eyedropper.flatpak \
+            --clobber
+      - name: Create and upload checksums
+        run: |
+          TAG="${{ github.ref_name }}"
+          cd artifacts
+          find . \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' \) | xargs sha256sum > SHA256SUMS
+          gh release upload "$TAG" SHA256SUMS --clobber --repo ${{ github.repository }}

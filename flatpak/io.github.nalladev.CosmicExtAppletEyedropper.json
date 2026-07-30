@@ -37,7 +37,7 @@
       "sources": [
         {
           "type": "dir",
-          "path": "/home/joel/Documents/Projects/cosmic-ext-applet-eyedropper"
+          "path": ".."
         },
         "cargo-sources.json"
       ]
