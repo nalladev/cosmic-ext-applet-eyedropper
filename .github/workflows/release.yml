@@ -97,14 +97,12 @@ jobs:
 
       - name: Build Flatpak
         run: |
-          flatpak-builder --force-clean --install-deps-from=flathub \
-            --install-deps-only build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
           flatpak-builder --force-clean --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ \
-            build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+            --install-deps-from=flathub --repo=flatpak-repo build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
 
       - name: Create Flatpak bundle
         run: |
-          flatpak build-bundle build-dir cosmic-ext-applet-eyedropper.flatpak \
+          flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
             io.github.nalladev.CosmicExtAppletEyedropper
 
       - name: Upload Flatpak artifact
