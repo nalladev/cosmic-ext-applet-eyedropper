@@ -844,7 +844,6 @@ impl cosmic::Application for AppModel {
             Message::MagnifierZoom(delta_y) => {
                 // Accumulate — applied once per frame in FrameTick.
                 self.pending_zoom_delta += delta_y;
-                eprintln!("[zoom] delta={delta_y:.2}");
             }
 
             // ── Frame tick — apply throttled zoom ───────────────────
