@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use ::image::EncodableLayout;
 
-use crate::config::Config;
+use crate::config::{ColorFormat, Config};
 use crate::fl;
 use crate::picker::PickerController;
 use crate::picker::{self, CapturedOutput, Color};
@@ -23,7 +23,7 @@ use cosmic::iced::runtime::platform_specific::wayland::layer_surface::{
 };
 use cosmic::{
     applet::{menu_button, padded_control},
-    cosmic_config::{self, CosmicConfigEntry},
+    cosmic_config::{self, ConfigSet, CosmicConfigEntry},
     cosmic_theme::Spacing,
     iced::{
         Alignment, Border, ContentFit, Event, Length, Limits, Subscription, event, mouse,
@@ -34,7 +34,9 @@ use cosmic::{
     surface,
     surface::action::LiveSettings,
     theme,
-    widget::{button, canvas, divider, icon, image, text},
+    widget::{
+        button, canvas, divider, icon, image, segmented_button, segmented_control, text, toggler,
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -61,15 +63,27 @@ pub struct OutputState {
 }
 
 // ---------------------------------------------------------------------------
-// Copy feedback / Clipboard helpers
+// Clipboard helpers
 // ---------------------------------------------------------------------------
 
-/// Which colour representation was copied to the clipboard.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CopyTarget {
-    Hex,
-    Rgb,
-    Hsl,
+// Copy feedback tracks the [`ColorFormat`] that was last written to the
+// clipboard, reusing the colour-format enum from the configuration.
+
+/// Build a single-select segmented model for the colour-format setting,
+/// pre-selecting `active`.
+fn build_color_format_model(active: ColorFormat) -> segmented_button::SingleSelectModel {
+    let mut model = segmented_button::Model::builder()
+        .insert(|b| b.text(fl!("hex")).data(ColorFormat::Hex))
+        .insert(|b| b.text(fl!("rgb")).data(ColorFormat::Rgb))
+        .insert(|b| b.text(fl!("hsl")).data(ColorFormat::Hsl))
+        .build();
+
+    model.activate_position(match active {
+        ColorFormat::Hex => 0,
+        ColorFormat::Rgb => 1,
+        ColorFormat::Hsl => 2,
+    });
+    model
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +103,10 @@ pub struct AppModel {
     popup: Option<Id>,
     /// Configuration data that persists between application runs.
     config: Config,
+    /// Handle to the COSMIC config, used to persist setting changes.
+    config_context: cosmic_config::Config,
+    /// Segmented-control model for the default colour-format setting.
+    color_format_model: segmented_button::SingleSelectModel,
 
     // ── Eyedropper / colour-picker state ────────────────────────────
     /// The most recently sampled colour (if any).
@@ -116,8 +134,8 @@ pub struct AppModel {
     pending_overlay_ids: Vec<window::Id>,
 
     // ── Clipboard feedback ───────────────────────────────────────────
-    /// Which target was last copied (if any).
-    copied_target: Option<CopyTarget>,
+    /// Which format was last copied (if any).
+    copied_target: Option<ColorFormat>,
     /// When the last copy happened (for auto-clearing feedback).
     copied_at: Option<Instant>,
 
@@ -135,6 +153,10 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     UpdateConfig(Config),
+    /// The "Copy on selection" toggle was changed.
+    SetCopyOnSelect(bool),
+    /// A colour format was selected in the segmented control.
+    SetDefaultFormat(segmented_button::Entity),
 
     // ── Capture flow ────────────────────────────────────────────────
     // ────────────────────────────────────────────────
@@ -213,11 +235,14 @@ impl cosmic::Application for AppModel {
             },
         );
 
-        let (_config_context, config_entry) = config_context;
+        let (config_context, config_entry) = config_context;
+        let color_format_model = build_color_format_model(config_entry.default_color_format);
 
         let app = AppModel {
             core,
             config: config_entry,
+            config_context,
+            color_format_model,
             popup: None,
             sampled: None,
             error: None,
@@ -354,6 +379,24 @@ impl cosmic::Application for AppModel {
             // ────────────────────────────────────────────────
             Message::UpdateConfig(config) => {
                 self.config = config;
+                self.sync_color_format_model();
+            }
+
+            // ────────────────────────────────────────────────
+            Message::SetCopyOnSelect(value) => {
+                self.config.copy_on_select = value;
+                let _ = self.config_context.set("copy_on_select", value);
+            }
+
+            // ────────────────────────────────────────────────
+            Message::SetDefaultFormat(entity) => {
+                self.color_format_model.activate(entity);
+                if let Some(format) = self.color_format_model.data::<ColorFormat>(entity).copied()
+                    && self.config.default_color_format != format
+                {
+                    self.config.default_color_format = format;
+                    let _ = self.config_context.set("default_color_format", format);
+                }
             }
 
             // ────────────────────────────────────────────────
@@ -640,6 +683,21 @@ impl cosmic::Application for AppModel {
 
                         let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
 
+                        // Automatically copy the picked colour when enabled,
+                        // using the configured default format.
+                        if self.config.copy_on_select {
+                            let format = self.config.default_color_format;
+                            let text = match format {
+                                ColorFormat::Hex => self.hex.clone(),
+                                ColorFormat::Rgb => self.rgb.clone(),
+                                ColorFormat::Hsl => self.hsl.clone(),
+                            };
+                            eprintln!("[picker]   auto-copy ({format:?}): {text}");
+                            self.copied_target = Some(format);
+                            self.copied_at = Some(Instant::now());
+                            tasks.push(clipboard::write(text));
+                        }
+
                         // Destroy all overlay surfaces.
                         for oid in &overlays {
                             tasks.push(destroy_layer_surface(*oid));
@@ -694,7 +752,7 @@ impl cosmic::Application for AppModel {
             Message::CopyHex => {
                 let hex = self.hex.clone();
                 if !hex.is_empty() {
-                    self.copied_target = Some(CopyTarget::Hex);
+                    self.copied_target = Some(ColorFormat::Hex);
                     self.copied_at = Some(Instant::now());
                     return Task::batch(vec![
                         clipboard::write(hex),
@@ -711,7 +769,7 @@ impl cosmic::Application for AppModel {
             Message::CopyRgb => {
                 let rgb = self.rgb.clone();
                 if !rgb.is_empty() {
-                    self.copied_target = Some(CopyTarget::Rgb);
+                    self.copied_target = Some(ColorFormat::Rgb);
                     self.copied_at = Some(Instant::now());
                     return Task::batch(vec![
                         clipboard::write(rgb),
@@ -728,7 +786,7 @@ impl cosmic::Application for AppModel {
             Message::CopyHsl => {
                 let hsl = self.hsl.clone();
                 if !hsl.is_empty() {
-                    self.copied_target = Some(CopyTarget::Hsl);
+                    self.copied_target = Some(ColorFormat::Hsl);
                     self.copied_at = Some(Instant::now());
                     return Task::batch(vec![
                         clipboard::write(hsl),
@@ -788,6 +846,17 @@ impl AppModel {
         self.hsl = color.hsl();
     }
 
+    /// Keep the segmented-control selection in sync with the configured
+    /// default colour format (e.g. after an external config change).
+    fn sync_color_format_model(&mut self) {
+        self.color_format_model
+            .activate_position(match self.config.default_color_format {
+                ColorFormat::Hex => 0,
+                ColorFormat::Rgb => 1,
+                ColorFormat::Hsl => 2,
+            });
+    }
+
     /// Build a single colour-representation row (label + value + copy button).
     ///
     /// The copy-area shows a symbolic copy icon when a colour is available,
@@ -798,7 +867,7 @@ impl AppModel {
         &self,
         label: String,
         value: &str,
-        target: CopyTarget,
+        target: ColorFormat,
         msg: Message,
     ) -> Element<'_, Message> {
         let just_copied = self
@@ -903,14 +972,40 @@ impl AppModel {
         if has_color {
             content = content
                 .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
-                .push(self.color_row(fl!("hex"), &hex_val, CopyTarget::Hex, Message::CopyHex))
-                .push(self.color_row(fl!("rgb"), &rgb_val, CopyTarget::Rgb, Message::CopyRgb))
-                .push(self.color_row(fl!("hsl"), &hsl_val, CopyTarget::Hsl, Message::CopyHsl));
+                .push(self.color_row(fl!("hex"), &hex_val, ColorFormat::Hex, Message::CopyHex))
+                .push(self.color_row(fl!("rgb"), &rgb_val, ColorFormat::Rgb, Message::CopyRgb))
+                .push(self.color_row(fl!("hsl"), &hsl_val, ColorFormat::Hsl, Message::CopyHsl));
         }
 
         // Status / error message.
         if let Some(ref err) = self.error {
             content = content.push(padded_control(text::body(err)).padding([space_xxs, space_s]));
+        }
+
+        // ── Settings: copy on selection ─────────────────────────────────
+        content = content
+            .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
+            .push(padded_control(
+                row![
+                    text::body(fl!("copy-on-select")),
+                    space::horizontal(),
+                    toggler(self.config.copy_on_select).on_toggle(Message::SetCopyOnSelect),
+                ]
+                .align_y(Alignment::Center),
+            ));
+
+        // The default-format choice only matters when auto-copy is enabled.
+        if self.config.copy_on_select {
+            content = content
+                .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
+                .push(padded_control(
+                    column![text::body(fl!("default-color-format"))]
+                        .push(
+                            segmented_control::horizontal(&self.color_format_model)
+                                .on_activate(Message::SetDefaultFormat),
+                        )
+                        .spacing(f32::from(space_xxs)),
+                ));
         }
 
         self.core.applet.popup_container(content).into()

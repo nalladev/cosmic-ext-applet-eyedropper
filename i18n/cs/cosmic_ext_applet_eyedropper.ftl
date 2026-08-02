@@ -10,3 +10,5 @@ hsl = HSL
 select-colour = Vybrat barvu
 no-color-selected = Nebyla vybrána žádná barva
 copied = Zkopírováno
+copy-on-select = Kopírovat po výběru
+default-color-format = Výchozí formát barvy
