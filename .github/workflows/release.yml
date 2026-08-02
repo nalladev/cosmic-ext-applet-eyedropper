@@ -127,7 +127,7 @@ jobs:
       - name: Create release
         run: |
           TAG="${{ github.ref_name }}"
-          gh release create "$TAG" --title "$TAG" --notes-from-tag
+          gh release create "$TAG" --title "$TAG" --generate-notes
       - name: Upload release assets
         run: |
           TAG="${{ github.ref_name }}"
