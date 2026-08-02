@@ -992,16 +992,21 @@ impl AppModel {
                     toggler(self.config.copy_on_select).on_toggle(Message::SetCopyOnSelect),
                 ]
                 .align_y(Alignment::Center),
-            ))
-            .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
-            .push(padded_control(
-                column![text::body(fl!("default-color-format"))]
-                    .push(
-                        segmented_control::horizontal(&self.color_format_model)
-                            .on_activate(Message::SetDefaultFormat),
-                    )
-                    .spacing(f32::from(space_xxs)),
             ));
+
+        // The default-format choice only matters when auto-copy is enabled.
+        if self.config.copy_on_select {
+            content = content
+                .push(padded_control(divider::horizontal::default()).padding([space_xxs, space_s]))
+                .push(padded_control(
+                    column![text::body(fl!("default-color-format"))]
+                        .push(
+                            segmented_control::horizontal(&self.color_format_model)
+                                .on_activate(Message::SetDefaultFormat),
+                        )
+                        .spacing(f32::from(space_xxs)),
+                ));
+        }
 
         self.core.applet.popup_container(content).into()
     }
