@@ -10,3 +10,5 @@ hsl = HSL
 select-colour = Select Colour
 no-color-selected = No colour selected
 copied = Copied
+copy-on-select = Copy on selection
+default-color-format = Default color format
