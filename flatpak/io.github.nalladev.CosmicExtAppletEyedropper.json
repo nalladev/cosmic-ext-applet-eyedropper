@@ -9,6 +9,7 @@
     "--share=ipc",
     "--socket=wayland",
     "--socket=fallback-x11",
+    "--own-name=io.github.nalladev.CosmicExtAppletEyedropper",
     "--talk-name=com.system76.CosmicSettingsDaemon.*",
     "--talk-name=com.system76.CosmicSettingsDaemon",
     "--talk-name=org.freedesktop.portal.Desktop",
