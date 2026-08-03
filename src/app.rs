@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use ::image::EncodableLayout;
 
+use crate::activation;
 use crate::config::{ColorFormat, Config};
 use crate::fl;
 use crate::picker::PickerController;
@@ -38,6 +39,17 @@ use cosmic::{
         button, canvas, divider, icon, image, segmented_button, segmented_control, text, toggler,
     },
 };
+
+// ---------------------------------------------------------------------------
+// Command-line flags
+// ---------------------------------------------------------------------------
+
+/// Command-line flags passed to the applet.
+#[derive(Debug, Clone, Default)]
+pub struct Flags {
+    /// Launch directly into colour-picker mode (`--pick`).
+    pub pick: bool,
+}
 
 // ---------------------------------------------------------------------------
 // Output tracking
@@ -103,6 +115,11 @@ pub struct AppModel {
     popup: Option<Id>,
     /// Configuration data that persists between application runs.
     config: Config,
+    /// Command-line flags this instance was launched with.
+    flags: Flags,
+    /// `true` while the deferred `--pick` capture is waiting for the first
+    /// tracked output (overlay creation needs the output list).
+    pending_start: bool,
     /// Handle to the COSMIC config, used to persist setting changes.
     config_context: cosmic_config::Config,
     /// Segmented-control model for the default colour-format setting.
@@ -162,6 +179,9 @@ pub enum Message {
     // ────────────────────────────────────────────────
     /// The eyedropper button was clicked in the popup.
     EyedropperClicked,
+    /// A `pick` request arrived via D-Bus activation (`--pick` forwarded
+    /// from a second invocation of the applet).
+    DbusPick,
     /// Screenshot captured and per-output data is ready.
     CaptureCompleted(Vec<CapturedOutput>),
     /// The screenshot capture failed with an error message.
@@ -207,7 +227,7 @@ pub enum Message {
 
 impl cosmic::Application for AppModel {
     type Executor = cosmic::executor::Default;
-    type Flags = ();
+    type Flags = Flags;
     type Message = Message;
 
     const APP_ID: &'static str = "io.github.nalladev.CosmicExtAppletEyedropper";
@@ -220,10 +240,7 @@ impl cosmic::Application for AppModel {
         &mut self.core
     }
 
-    fn init(
-        core: cosmic::Core,
-        _flags: Self::Flags,
-    ) -> (Self, Task<cosmic::Action<Self::Message>>) {
+    fn init(core: cosmic::Core, flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
         let config_context = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).map_or_else(
             |_| {
                 let ctx = cosmic_config::Config::new(Self::APP_ID, Config::VERSION).unwrap();
@@ -237,10 +254,13 @@ impl cosmic::Application for AppModel {
 
         let (config_context, config_entry) = config_context;
         let color_format_model = build_color_format_model(config_entry.default_color_format);
+        let pending_start = flags.pick;
 
         let app = AppModel {
             core,
             config: config_entry,
+            flags,
+            pending_start,
             config_context,
             color_format_model,
             popup: None,
@@ -319,6 +339,8 @@ impl cosmic::Application for AppModel {
                 )) => Some(Message::OutputEvent(Box::new(o_event), wl_output)),
                 _ => None,
             }),
+            // D-Bus activation (`--pick` forwarded to this instance)
+            activation::subscription().map(|_| Message::DbusPick),
             // ~60 fps tick for throttled zoom application.
             cosmic::iced::time::every(Duration::from_millis(16)).map(|_| Message::FrameTick),
         ];
@@ -373,6 +395,11 @@ impl cosmic::Application for AppModel {
                     self.copied_target = None;
                     self.copied_at = None;
                     eprintln!("[picker]   normal popup close — no capture.");
+                    // One-shot CLI mode: the picker session is finished once
+                    // the result popup is dismissed.
+                    if self.flags.pick {
+                        std::process::exit(0);
+                    }
                 }
             }
 
@@ -402,39 +429,13 @@ impl cosmic::Application for AppModel {
             // ────────────────────────────────────────────────
             Message::EyedropperClicked => {
                 eprintln!("[picker] EyedropperClicked — starting Screenshot portal capture");
+                return self.start_capture();
+            }
 
-                // Ignore if already picking
-                if self.picker.is_some() {
-                    eprintln!("[picker]   WARNING: ignored — picker already active");
-                    return Task::none();
-                }
-
-                self.error = None;
-                self.sampled = None;
-                self.copied_target = None;
-                self.copied_at = None;
-                self.magnifier.reset();
-
-                // Start capture in background
-                let capture_task = Task::perform(
-                    picker::capture_outputs(),
-                    |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
-                        Ok(captures) => Message::CaptureCompleted(captures),
-                        Err(e) => Message::CaptureFailed(e.to_string()),
-                    },
-                )
-                .map(cosmic::Action::App);
-
-                // Close popup if open
-                if let Some(popup_id) = self.popup.take() {
-                    return Task::batch(vec![
-                        surface::surface_task(surface::action::destroy_popup(popup_id)),
-                        capture_task,
-                    ]);
-                }
-
-                // Popup already closed, just start capture
-                return capture_task;
+            // ────────────────────────────────────────────────
+            Message::DbusPick => {
+                eprintln!("[picker] DbusPick — pick requested via D-Bus activation");
+                return self.start_capture();
             }
 
             // ────────────────────────────────────────────────
@@ -458,6 +459,11 @@ impl cosmic::Application for AppModel {
                 if captures.is_empty() {
                     eprintln!("[picker]   captures is empty — error + cancel");
                     self.error = Some("No outputs captured".into());
+                    // One-shot CLI mode: exit with a failure code instead of
+                    // reopening the popup.
+                    if self.flags.pick {
+                        std::process::exit(1);
+                    }
                     return self.cancel_picker();
                 }
 
@@ -553,6 +559,11 @@ impl cosmic::Application for AppModel {
             Message::CaptureFailed(msg) => {
                 eprintln!("[picker] CaptureFailed: {msg}");
                 self.error = Some(msg);
+                // One-shot CLI mode: exit with a failure code instead of
+                // reopening the popup.
+                if self.flags.pick {
+                    std::process::exit(1);
+                }
                 // Exit picker mode cleanly (destroy overlays, reopen popup).
                 return self.cancel_picker();
             }
@@ -610,6 +621,14 @@ impl cosmic::Application for AppModel {
                     _ => {
                         // Ignore incomplete or unhandled events.
                     }
+                }
+
+                // If launched with --pick, start the capture as soon as
+                // outputs are known — overlay creation needs the tracked
+                // output list, which is only populated by these events.
+                if self.pending_start && !self.outputs.is_empty() && self.picker.is_none() {
+                    self.pending_start = false;
+                    return self.start_capture();
                 }
             }
 
@@ -844,6 +863,46 @@ impl AppModel {
         self.hex = color.hex();
         self.rgb = color.rgb();
         self.hsl = color.hsl();
+    }
+
+    /// Begin a screen capture and enter picker mode once it completes.
+    ///
+    /// Shared by the applet button, the `--pick` command-line option, and
+    /// D-Bus activation.  Ignores the request if a picker session is already
+    /// active.
+    fn start_capture(&mut self) -> Task<cosmic::Action<Message>> {
+        // Ignore if already picking.
+        if self.picker.is_some() {
+            eprintln!("[picker]   WARNING: ignored — picker already active");
+            return Task::none();
+        }
+
+        self.error = None;
+        self.sampled = None;
+        self.copied_target = None;
+        self.copied_at = None;
+        self.magnifier.reset();
+
+        // Start capture in background.
+        let capture_task = Task::perform(
+            picker::capture_outputs(),
+            |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
+                Ok(captures) => Message::CaptureCompleted(captures),
+                Err(e) => Message::CaptureFailed(e.to_string()),
+            },
+        )
+        .map(cosmic::Action::App);
+
+        // Close popup if open.
+        if let Some(popup_id) = self.popup.take() {
+            return Task::batch(vec![
+                surface::surface_task(surface::action::destroy_popup(popup_id)),
+                capture_task,
+            ]);
+        }
+
+        // Popup already closed, just start capture.
+        capture_task
     }
 
     /// Keep the segmented-control selection in sync with the configured
@@ -1179,6 +1238,12 @@ impl AppModel {
             "[picker]   picker state was {:?}",
             self.picker.as_ref().map(|p| p.state)
         );
+
+        // One-shot CLI mode (--pick): the picker session has ended — exit
+        // instead of reopening the popup.
+        if self.flags.pick {
+            std::process::exit(0);
+        }
 
         let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
 

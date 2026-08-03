@@ -16,6 +16,7 @@ rust-embed = "8.7.2"
 rustix = { version = "1", features = ["fs", "std"] }
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1.48.0", features = ["full"] }
+zbus = { version = "5.15", default-features = false, features = ["blocking-api", "tokio"] }
 
 [dependencies.i18n-embed]
 version = "0.16"
@@ -32,6 +33,8 @@ features = [
     "dbus-config",
     # Support creating additional application windows.
     "multi-window",
+    # D-Bus activation support (--pick forwards to a running instance).
+    "single-instance",
     # Uses tokio as the executor for the runtime
     "tokio",
     # Add Wayland support to winit
