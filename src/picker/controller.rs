@@ -100,13 +100,13 @@ impl PickerController {
         overlay_ids: Vec<cosmic::iced::window::Id>,
     ) -> Self {
         let n = captures.len();
-        eprintln!(
+        log::debug!(
             "[picker] PickerController::new_with_captures({} outputs, {} overlays)",
             n,
             overlay_ids.len()
         );
         for (i, oid) in overlay_ids.iter().enumerate() {
-            eprintln!("[picker]   overlay[{i}] id={oid:?}");
+            log::debug!("[picker]   overlay[{i}] id={oid:?}");
         }
         PickerController {
             captures,

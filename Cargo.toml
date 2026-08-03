@@ -9,9 +9,11 @@ repository = "https://github.com/nalladev/cosmic-ext-applet-eyedropper"
 [dependencies]
 anyhow = "1"
 ashpd = "0.12"
+env_logger = "0.11"
 futures-util = "0.3.31"
 i18n-embed-fl = "0.10"
 image = "0.25"
+log = "0.4"
 rust-embed = "8.7.2"
 rustix = { version = "1", features = ["fs", "std"] }
 serde = { version = "1", features = ["derive"] }
