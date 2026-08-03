@@ -10,7 +10,9 @@ use crate::fl;
 use crate::picker::PickerController;
 use crate::picker::{self, CapturedOutput, Color};
 use crate::widget::keyboard_wrapper::KeyboardWrapper;
-use crate::widget::magnifier::{MagnifierProgram, MagnifierState};
+use crate::widget::magnifier::{
+    GRID_SIZE, MAX_ZOOM, MIN_ZOOM, MagnifierProgram, MagnifierState, lens_rgba, mask_for_zoom,
+};
 use cosmic::cctk::sctk::shell::wlr_layer::{Anchor, KeyboardInteractivity, Layer};
 use cosmic::cctk::wayland_client::protocol::wl_output::WlOutput;
 use cosmic::iced::clipboard;
@@ -753,8 +755,12 @@ impl cosmic::Application for AppModel {
                 let d = self.magnifier.pending_zoom_delta;
                 if d != 0.0 {
                     self.magnifier.pending_zoom_delta = 0.0;
-                    self.magnifier.zoom_level =
-                        (self.magnifier.zoom_level - d * 0.75).clamp(8.0, 24.0);
+                    // Snap to whole-number cell sizes so the lens texture stays
+                    // at exact 1:1 resolution (see MagnifierMask in
+                    // widget/magnifier.rs).
+                    self.magnifier.zoom_level = (self.magnifier.zoom_level - d * 0.75)
+                        .round()
+                        .clamp(MIN_ZOOM, MAX_ZOOM);
                 }
             }
 
@@ -1157,26 +1163,34 @@ impl AppModel {
         clippy::cast_sign_loss
     )]
     fn build_magnifier(&self) -> Option<Element<'static, Message>> {
-        const GRID_SIZE: usize = 17; // odd for centred crosshair
         const BELOW_OFFSET: f32 = 14.0;
 
         let picker = self.picker.as_ref()?;
         let hover = picker.hover.as_ref()?;
         let capture = picker.captures.get(hover.output_index)?;
 
-        let pixel_size = self.magnifier.zoom_level;
+        let pixel_size = self.magnifier.zoom_level.round();
         let total = GRID_SIZE as f32 * pixel_size;
 
-        // ── Canvas program (reads pre-filled buffer) ─────────────────
-        let program = MagnifierProgram {
-            pixels: self.magnifier.buf.to_vec(),
+        // ── Lens texture: one RGBA quad from the precomputed mask ────
+        let mask = mask_for_zoom(pixel_size);
+        let rgba = lens_rgba(mask, &self.magnifier.buf);
+        let handle =
+            cosmic::iced::widget::image::Handle::from_rgba(mask.resolution, mask.resolution, rgba);
+        let lens = image(handle)
+            .width(Length::Fixed(total))
+            .height(Length::Fixed(total))
+            .filter_method(cosmic::iced::widget::image::FilterMethod::Nearest);
+
+        // ── Overlay canvas: crosshair, centre highlight, border ──────
+        let overlay = canvas::Canvas::<_, Message, cosmic::Theme>::new(MagnifierProgram {
             grid_size: GRID_SIZE,
             pixel_size,
-        };
+        })
+        .width(Length::Fixed(total))
+        .height(Length::Fixed(total));
 
-        let mag_canvas = canvas::Canvas::<_, Message, cosmic::Theme>::new(program)
-            .width(Length::Fixed(total))
-            .height(Length::Fixed(total));
+        let mag = Stack::with_children(vec![lens.into(), overlay.into()]);
 
         // ── Cursor-relative positioning ───────────────────────────────
         // The magnifier is placed above-right of the cursor so it never
@@ -1212,7 +1226,7 @@ impl AppModel {
         // container using the padding trick: padding from top & left
         // pushes the child to (mag_x, mag_y).
         Some(
-            container(mag_canvas)
+            container(mag)
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .padding([mag_y, 0.0, 0.0, mag_x])

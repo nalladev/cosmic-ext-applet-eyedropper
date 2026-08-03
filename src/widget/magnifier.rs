@@ -2,12 +2,33 @@
 
 //! Magnifier lens widget and state.
 //!
-//! Provides [`MagnifierProgram`] — a circular magnified pixel grid canvas
-//! widget for the colour picker overlay — and [`MagnifierState`] for
-//! managing the zoom level and pixel buffer outside the widget tree.
+//! The magnified cells are rendered as a single RGBA texture ([`lens_rgba`])
+//! using a precomputed per-zoom lens mask ([`MASKS`]).  The inside/outside
+//! circle geometry depends only on the cell size, so it is computed once and
+//! then looked up — the GPU work is one textured quad per frame instead of
+//! one draw call per cell.  [`MagnifierProgram`] draws the overlay strokes
+//! (crosshair, centre highlight, border) on top of the texture.
+
+use std::sync::LazyLock;
 
 use cosmic::iced::mouse;
 use cosmic::iced::widget::canvas::{self, Path, Stroke};
+
+/// Number of cells per side of the lens grid (odd, for a centred crosshair).
+pub const GRID_SIZE: usize = 17;
+
+/// Minimum zoom level (cell size in logical pixels).
+pub const MIN_ZOOM: f32 = 8.0;
+
+/// Maximum zoom level (cell size in logical pixels).
+pub const MAX_ZOOM: f32 = 24.0;
+
+/// Number of discrete zoom levels (`MAX_ZOOM - MIN_ZOOM + 1`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+const ZOOM_LEVELS: usize = (MAX_ZOOM - MIN_ZOOM) as usize + 1;
+
+/// Mask sentinel: the lens pixel falls outside the circular lens.
+const OUTSIDE: u16 = u16::MAX;
 
 // ---------------------------------------------------------------------------
 // Persistent state (held in AppModel between frames)
@@ -22,7 +43,8 @@ pub struct MagnifierState {
     /// Pre-allocated flat RGB buffer for the magnifier grid (stride 3).
     /// Avoids a per-frame heap allocation on every pointer move.
     pub buf: [u8; 873],
-    /// Current zoom level (logical pixels per magnified cell).
+    /// Current zoom level (whole-number logical pixels per magnified cell).
+    /// Integer values keep the lens texture at exact 1:1 resolution.
     pub zoom_level: f32,
     /// Accumulated scroll delta — applied once per frame via `FrameTick`.
     pub pending_zoom_delta: f32,
@@ -34,14 +56,14 @@ impl MagnifierState {
     pub fn new() -> Self {
         MagnifierState {
             buf: [0u8; 873],
-            zoom_level: 8.0,
+            zoom_level: MIN_ZOOM,
             pending_zoom_delta: 0.0,
         }
     }
 
     /// Reset zoom to defaults (e.g. when starting a new picking session).
     pub fn reset(&mut self) {
-        self.zoom_level = 8.0;
+        self.zoom_level = MIN_ZOOM;
         self.pending_zoom_delta = 0.0;
     }
 }
@@ -53,17 +75,96 @@ impl Default for MagnifierState {
 }
 
 // ---------------------------------------------------------------------------
-// Canvas program — renders the magnified pixel grid
+// Per-zoom lens mask (computed once, looked up every frame)
 // ---------------------------------------------------------------------------
 
-/// Renders a circular magnified pixel grid centred on the cursor.
+/// Maps every pixel of the lens texture to the source cell it magnifies.
 ///
-/// The lens shape is achieved by checking each pixel's centre distance
-/// against the circle radius — no clip path required.
+/// A mask exists per discrete zoom level: which pixels fall inside the circle
+/// and which source cell each magnifies depends only on the cell size, so it
+/// never changes while the pointer moves.
+#[derive(Debug)]
+pub struct MagnifierMask {
+    /// Texture resolution per side (`GRID_SIZE * zoom`, integer).
+    pub resolution: u32,
+    /// `resolution²` entries — source cell index (`0..GRID_SIZE²`) or
+    /// [`OUTSIDE`] for pixels beyond the circular lens.
+    pub cells: Vec<u16>,
+}
+
+/// All lens masks (`MIN_ZOOM..=MAX_ZOOM`), built once on first use.
+static MASKS: LazyLock<[MagnifierMask; ZOOM_LEVELS]> = LazyLock::new(build_masks);
+
+/// Build the mask for every zoom level in one pass.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+fn build_masks() -> [MagnifierMask; ZOOM_LEVELS] {
+    std::array::from_fn(|i| {
+        let zoom = MIN_ZOOM + i as f32;
+        let resolution = (GRID_SIZE as f32 * zoom).round() as u32;
+        let radius = resolution as f32 / 2.0;
+        let radius_sq = radius * radius;
+        let mut cells = Vec::with_capacity((resolution * resolution) as usize);
+        for y in 0..resolution {
+            for x in 0..resolution {
+                // Pixel centre relative to the circle centre.
+                let dx = x as f32 + 0.5 - radius;
+                let dy = y as f32 + 0.5 - radius;
+                let cell = if dx * dx + dy * dy <= radius_sq {
+                    let col = ((x as f32 + 0.5) / zoom) as usize;
+                    let row = ((y as f32 + 0.5) / zoom) as usize;
+                    (row * GRID_SIZE + col) as u16
+                } else {
+                    OUTSIDE
+                };
+                cells.push(cell);
+            }
+        }
+        MagnifierMask { resolution, cells }
+    })
+}
+
+/// Look up the lens mask for a zoom level, snapping to the nearest
+/// supported integer level.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub fn mask_for_zoom(zoom: f32) -> &'static MagnifierMask {
+    let zoom = zoom.round().clamp(MIN_ZOOM, MAX_ZOOM);
+    &MASKS[zoom as usize - MIN_ZOOM as usize]
+}
+
+/// Fill an RGBA texture for the lens from the captured cell colours.
+///
+/// Pixels outside the circular lens are transparent; every inside pixel is
+/// the opaque colour of its source cell.
+#[must_use]
+pub fn lens_rgba(mask: &MagnifierMask, buf: &[u8]) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity(mask.cells.len() * 4);
+    for &cell in &mask.cells {
+        if cell == OUTSIDE {
+            rgba.extend_from_slice(&[0, 0, 0, 0]);
+        } else {
+            let base = cell as usize * 3;
+            rgba.extend_from_slice(&[buf[base], buf[base + 1], buf[base + 2], 255]);
+        }
+    }
+    rgba
+}
+
+// ---------------------------------------------------------------------------
+// Overlay canvas — crosshair, centre highlight and border
+// ---------------------------------------------------------------------------
+
+/// Draws the lens overlay strokes above the cell texture.
+///
+/// The cells themselves are a single image widget (see [`lens_rgba`]); this
+/// canvas only adds the crosshair, the centre-cell highlight and the outer
+/// border.
 pub struct MagnifierProgram {
-    /// Flat RGB byte array, row-major (stride 3).
-    pub pixels: Vec<u8>,
-    /// Number of cells per side (odd, e.g. 21).
+    /// Number of cells per side (odd, e.g. 17).
     pub grid_size: usize,
     /// Logical-pixel size of each magnified cell.
     pub pixel_size: f32,
@@ -72,7 +173,7 @@ pub struct MagnifierProgram {
 impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
     type State = ();
 
-    #[allow(clippy::cast_precision_loss, clippy::similar_names)]
+    #[allow(clippy::cast_precision_loss)]
     fn draw(
         &self,
         _state: &(),
@@ -83,116 +184,28 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
     ) -> Vec<canvas::Geometry> {
         let cosmic = theme.cosmic();
         let fg = cosmic::iced::Color::from(cosmic.on_bg_color());
-        let bg = cosmic::iced::Color::from(cosmic.bg_color());
 
         let mut frame = canvas::Frame::new(renderer, bounds.size());
         let cell = self.pixel_size;
-        let total = self.grid_size as f32 * cell;
-        let radius = total / 2.0;
+        let radius = self.grid_size as f32 * cell / 2.0;
         let centre = cosmic::iced::Point::new(radius, radius);
 
-        // 1. Semi-transparent circular background matching the theme.
-        let circle_bg = Path::circle(centre, radius);
-        frame.fill(&circle_bg, cosmic::iced::Color { a: 0.75, ..bg });
-
-        // 2. Draw each magnified pixel, clipped to the circle boundary.
-        //
-        // Two problems exist with a naive centre-point inclusion test:
-        //   a) Overflow: edge cells whose centre is just inside the circle are
-        //      drawn as full rectangles, so their corners bleed outside the
-        //      border stroke.
-        //   b) Dark gap: cells whose centre is just outside the circle but
-        //      whose rectangle still overlaps it are excluded entirely.
-        //
-        // Fix: use a closest-point overlap test for inclusion (fixes b), then
-        // clip each drawn rectangle to the horizontal and vertical extents of
-        // the circle at the pixel centre (fixes a).  For centre-outside pixels
-        // the slab corner always falls inside the circle (no overflow).  For
-        // centre-inside pixels the residual overflow is sub-pixel and
-        // decreases as pixel_size grows (higher zoom).
-        for row in 0..self.grid_size {
-            for col in 0..self.grid_size {
-                let idx = row * self.grid_size + col;
-                if idx >= self.pixels.len() {
-                    continue;
-                }
-
-                // Pixel bounding rect in canvas coordinates.
-                let left = col as f32 * cell;
-                let top = row as f32 * cell;
-                let right = left + cell;
-                let bottom = top + cell;
-
-                // Closest point on the rect to the circle centre.
-                let cx = radius.clamp(left, right);
-                let cy = radius.clamp(top, bottom);
-                let cdx = cx - radius;
-                let cdy = cy - radius;
-                // Skip pixels whose rectangle doesn't overlap the circle.
-                if cdx * cdx + cdy * cdy > radius * radius {
-                    continue;
-                }
-
-                // Pixel centre and its offset from the circle centre.
-                let pcx = left + cell * 0.5;
-                let pcy = top + cell * 0.5;
-                let dx = pcx - radius;
-                let dy = pcy - radius;
-
-                // Horizontal span of the circle at this pixel's centre y,
-                // and vertical span at this pixel's centre x.
-                let span_x_sq = radius * radius - dy * dy;
-                let span_y_sq = radius * radius - dx * dx;
-                if span_x_sq < 0.0 || span_y_sq < 0.0 {
-                    continue;
-                }
-                let span_x = span_x_sq.sqrt();
-                let span_y = span_y_sq.sqrt();
-
-                // Clip the draw rectangle to those spans.
-                let cl = (radius - span_x).max(left);
-                let cr = (radius + span_x).min(right);
-                let ct = (radius - span_y).max(top);
-                let cb = (radius + span_y).min(bottom);
-
-                if cr <= cl || cb <= ct {
-                    continue;
-                }
-
-                let base = idx * 3;
-                let (r, g, b) = (
-                    self.pixels[base],
-                    self.pixels[base + 1],
-                    self.pixels[base + 2],
-                );
-                let rect = Path::rectangle(
-                    cosmic::iced::Point::new(cl, ct),
-                    cosmic::iced::Size::new(cr - cl, cb - ct),
-                );
-                frame.fill(&rect, cosmic::iced::Color::from_rgb8(r, g, b));
-            }
-        }
-
-        // 3. Small crosshair at centre (3 cells wide — stays well inside circle).
-        let half = self.grid_size / 2;
-        let cx = half as f32 * cell + cell / 2.0;
-        let cy = half as f32 * cell + cell / 2.0;
-
-        let cross_extent = cell * 2.0; // extends 2 cells from centre
+        // Crosshair (2 cells wide — stays well inside the circle).
+        let cross_extent = cell * 2.0;
         let h_line = Path::line(
-            cosmic::iced::Point::new(cx - cross_extent, cy),
-            cosmic::iced::Point::new(cx + cross_extent, cy),
+            cosmic::iced::Point::new(centre.x - cross_extent, centre.y),
+            cosmic::iced::Point::new(centre.x + cross_extent, centre.y),
         );
         let v_line = Path::line(
-            cosmic::iced::Point::new(cx, cy - cross_extent),
-            cosmic::iced::Point::new(cx, cy + cross_extent),
+            cosmic::iced::Point::new(centre.x, centre.y - cross_extent),
+            cosmic::iced::Point::new(centre.x, centre.y + cross_extent),
         );
-
         let crosshair_style = Stroke::default().with_color(fg).with_width(1.5);
         frame.stroke(&h_line, crosshair_style);
         frame.stroke(&v_line, crosshair_style);
 
-        // 4. Centre-pixel highlight (bright border).
+        // Centre-cell highlight (bright border).
+        let half = self.grid_size / 2;
         let centre_rect = Path::rectangle(
             cosmic::iced::Point::new(half as f32 * cell, half as f32 * cell),
             cosmic::iced::Size::new(cell, cell),
@@ -202,7 +215,7 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
             Stroke::default().with_color(fg).with_width(2.0),
         );
 
-        // 5. Outer circular border.
+        // Outer circular border.
         let border = Path::circle(centre, radius - 0.5);
         frame.stroke(&border, Stroke::default().with_color(fg).with_width(1.5));
 
