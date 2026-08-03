@@ -44,7 +44,7 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
 fn helper() -> &'static CaptureHelper {
     static HELPER: OnceLock<CaptureHelper> = OnceLock::new();
     HELPER.get_or_init(|| {
-        eprintln!("[capture] Initialising persistent CaptureHelper singleton...");
+        log::info!("[capture] Initialising persistent CaptureHelper singleton...");
         CaptureHelper::new()
     })
 }
@@ -87,7 +87,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
 
     let h = helper();
     let t_start = std::time::Instant::now();
-    eprintln!("[capture] === Starting Screenshot portal capture ===");
+    log::info!("[capture] === Starting Screenshot portal capture ===");
 
     // ── Phase 1: portal call (async D-Bus) ────────────────────────
     let response = Screenshot::request()
@@ -103,7 +103,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
     let path = uri
         .to_file_path()
         .map_err(|()| anyhow::anyhow!("Cannot convert screenshot URI to file path: {uri}"))?;
-    eprintln!("[capture]   screenshot saved to: {}", path.display());
+    log::debug!("[capture]   screenshot saved to: {}", path.display());
 
     // ── Phase 2: load, crop, build handles (blocking thread) ──────
     let (tx, rx) = oneshot::channel();
@@ -116,7 +116,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
             let full_rgba = full_img.to_rgba8();
             let full_width = full_rgba.width();
             let full_height = full_rgba.height();
-            eprintln!(
+            log::debug!(
                 "[capture]   loaded screenshot {}x{} in {:?}",
                 full_width,
                 full_height,
@@ -125,16 +125,16 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
 
             // Clean up the temp file the portal left behind.
             if let Err(e) = std::fs::remove_file(&path) {
-                eprintln!("[capture]   warning: failed to remove temp file: {e}");
+                log::warn!("[capture]   warning: failed to remove temp file: {e}");
             }
 
             // Compute the total logical desktop area from all known outputs.
             let wl_outputs = h.outputs();
             let n = wl_outputs.len();
-            eprintln!("[capture]   {n} Wayland output(s) for cropping");
+            log::debug!("[capture]   {n} Wayland output(s) for cropping");
 
             if n == 0 {
-                eprintln!("[capture]   WARNING: no outputs discovered, using whole screenshot");
+                log::warn!("[capture]   WARNING: no outputs discovered, using whole screenshot");
                 // Fallback: treat the whole screenshot as a single output.
                 let handle = cosmic::widget::image::Handle::from_rgba(
                     full_width,
@@ -198,7 +198,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
             let scale_x = f64::from(full_width) / f64::from(total_logical_w);
             let scale_y = f64::from(full_height) / f64::from(total_logical_h);
 
-            eprintln!(
+            log::debug!(
                 "[capture]   desktop logical {}x{} (min {}/{}) screenshot {}x{} → scale {:.3}x{:.3}",
                 total_logical_w,
                 total_logical_h,
@@ -224,16 +224,26 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
                 let crop_h = crop_h.min(full_height.saturating_sub(crop_y));
 
                 if crop_w == 0 || crop_h == 0 {
-                    eprintln!(
+                    log::warn!(
                         "[capture]   SKIP {}: zero-sized crop {}x{}",
-                        g.name, crop_w, crop_h
+                        g.name,
+                        crop_w,
+                        crop_h
                     );
                     continue;
                 }
 
-                eprintln!(
+                log::debug!(
                     "[capture]   crop {}: logical={}x{} @({},{}) → pixel={}x{} @({},{})",
-                    g.name, g.log_w, g.log_h, g.pos_x, g.pos_y, crop_w, crop_h, crop_x, crop_y,
+                    g.name,
+                    g.log_w,
+                    g.log_h,
+                    g.pos_x,
+                    g.pos_y,
+                    crop_w,
+                    crop_h,
+                    crop_x,
+                    crop_y,
                 );
 
                 let cropped: RgbaImage =
@@ -259,7 +269,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
                 });
             }
 
-            eprintln!(
+            log::debug!(
                 "[capture]   produced {} per-output CapturedOutput(s)",
                 results.len()
             );
@@ -271,7 +281,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
             Ok(Err(e)) => Err(e),
             Err(panic) => {
                 let msg = panic_message(panic);
-                eprintln!("[capture] THREAD PANICKED: {msg}");
+                log::error!("[capture] THREAD PANICKED: {msg}");
                 Err(anyhow::anyhow!("Capture thread panicked: {msg}"))
             }
         };
@@ -283,7 +293,7 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
         .map_err(|_| anyhow::anyhow!("Capture thread was cancelled"))?;
     let captured = result?;
 
-    eprintln!(
+    log::info!(
         "[capture] === Screenshot capture finished: {} output(s) in {:?} ===",
         captured.len(),
         t_start.elapsed(),

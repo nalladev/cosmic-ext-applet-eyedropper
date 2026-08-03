@@ -387,14 +387,14 @@ impl cosmic::Application for AppModel {
             // ── Popup was closed ────────────────────────────────────────
             // ────────────────────────────────────────────────
             Message::PopupClosed(id) => {
-                eprintln!("[picker] PopupClosed({id:?})");
+                log::info!("[picker] PopupClosed({id:?})");
 
                 // Normal popup lifecycle (user closed it manually).
                 if self.popup.as_ref() == Some(&id) {
                     self.popup = None;
                     self.copied_target = None;
                     self.copied_at = None;
-                    eprintln!("[picker]   normal popup close — no capture.");
+                    log::info!("[picker]   normal popup close — no capture.");
                     // One-shot CLI mode: the picker session is finished once
                     // the result popup is dismissed.
                     if self.flags.pick {
@@ -428,22 +428,22 @@ impl cosmic::Application for AppModel {
 
             // ────────────────────────────────────────────────
             Message::EyedropperClicked => {
-                eprintln!("[picker] EyedropperClicked — starting Screenshot portal capture");
+                log::info!("[picker] EyedropperClicked — starting Screenshot portal capture");
                 return self.start_capture();
             }
 
             // ────────────────────────────────────────────────
             Message::DbusPick => {
-                eprintln!("[picker] DbusPick — pick requested via D-Bus activation");
+                log::info!("[picker] DbusPick — pick requested via D-Bus activation");
                 return self.start_capture();
             }
 
             // ────────────────────────────────────────────────
             Message::CaptureCompleted(captures) => {
                 let t_capture = std::time::Instant::now();
-                eprintln!("[picker] CaptureCompleted — {} outputs", captures.len());
+                log::info!("[picker] CaptureCompleted — {} outputs", captures.len());
                 for cap in &captures {
-                    eprintln!(
+                    log::debug!(
                         "[picker]   output: {} {}x{} @({},{}) logical {}x{} rgba={}b",
                         cap.name,
                         cap.width,
@@ -457,7 +457,7 @@ impl cosmic::Application for AppModel {
                 }
 
                 if captures.is_empty() {
-                    eprintln!("[picker]   captures is empty — error + cancel");
+                    log::error!("[picker]   captures is empty — error + cancel");
                     self.error = Some("No outputs captured".into());
                     // One-shot CLI mode: exit with a failure code instead of
                     // reopening the popup.
@@ -470,17 +470,17 @@ impl cosmic::Application for AppModel {
                 // If picker mode was cancelled while capture was running,
                 // discard the result.
                 if self.picker.is_some() {
-                    eprintln!(
+                    log::warn!(
                         "[picker]   WARNING: picker already exists — discard duplicate capture"
                     );
                     return Task::none();
                 }
 
-                eprintln!("[picker]   collecting pre-built image handles...");
+                log::debug!("[picker]   collecting pre-built image handles...");
                 let mut image_handles = Vec::with_capacity(captures.len());
                 for (i, cap) in captures.iter().enumerate() {
                     image_handles.push(cap.image_handle.clone());
-                    eprintln!("[picker]   image_handle[{i}]: {}x{}", cap.width, cap.height);
+                    log::debug!("[picker]   image_handle[{i}]: {}x{}", cap.width, cap.height);
                 }
 
                 // If overlays were pre-created (transparent) during
@@ -490,7 +490,7 @@ impl cosmic::Application for AppModel {
                 // flicker-free transition.
                 if !self.pending_overlay_ids.is_empty() {
                     let overlay_ids = std::mem::take(&mut self.pending_overlay_ids);
-                    eprintln!(
+                    log::debug!(
                         "[picker]   reusing {} pre-created overlay(s): {:?}",
                         overlay_ids.len(),
                         overlay_ids
@@ -501,10 +501,10 @@ impl cosmic::Application for AppModel {
                         image_handles,
                         overlay_ids,
                     ));
-                    eprintln!(
+                    log::info!(
                         "[picker]   picker created in Picking state with {n_overlays} overlays (pre-created path)"
                     );
-                    eprintln!(
+                    log::debug!(
                         "[picker]   CaptureCompleted handler took {:?}",
                         t_capture.elapsed(),
                     );
@@ -512,7 +512,7 @@ impl cosmic::Application for AppModel {
                 }
 
                 // Fallback: create overlay windows now (no pre-creation).
-                eprintln!(
+                log::debug!(
                     "[picker]   creating overlay windows on {} outputs...",
                     self.outputs.len()
                 );
@@ -522,7 +522,7 @@ impl cosmic::Application for AppModel {
                 for (i, output_state) in self.outputs.iter().enumerate() {
                     let overlay_id = output_state.id;
                     overlay_ids.push(overlay_id);
-                    eprintln!(
+                    log::debug!(
                         "[picker]   creating overlay[{i}] id={overlay_id:?} on output '{}",
                         output_state.name
                     );
@@ -546,8 +546,8 @@ impl cosmic::Application for AppModel {
                     image_handles,
                     overlay_ids,
                 ));
-                eprintln!("[picker]   picker created in Picking state with {n_overlays} overlays");
-                eprintln!(
+                log::info!("[picker]   picker created in Picking state with {n_overlays} overlays");
+                log::debug!(
                     "[picker]   CaptureCompleted handler took {:?}",
                     t_capture.elapsed(),
                 );
@@ -557,7 +557,7 @@ impl cosmic::Application for AppModel {
 
             // ── Capture failed ──────────────────────────────────────────
             Message::CaptureFailed(msg) => {
-                eprintln!("[picker] CaptureFailed: {msg}");
+                log::error!("[picker] CaptureFailed: {msg}");
                 self.error = Some(msg);
                 // One-shot CLI mode: exit with a failure code instead of
                 // reopening the popup.
@@ -671,7 +671,7 @@ impl cosmic::Application for AppModel {
                         }
                     }
                 } else {
-                    eprintln!(
+                    log::warn!(
                         "[picker] PointerMoved({id:?}, {x:.0}, {y:.0}) — FAILED (no output match)"
                     );
                 }
@@ -679,15 +679,15 @@ impl cosmic::Application for AppModel {
 
             // ── Pointer clicked on a picker overlay ───────────────────
             Message::PointerClicked(id) => {
-                eprintln!("[picker] PointerClicked({id:?})");
+                log::info!("[picker] PointerClicked({id:?})");
                 if let Some(picker) = self.picker.as_mut() {
-                    eprintln!(
+                    log::debug!(
                         "[picker]   picker state={:?}, captures={}",
                         picker.state,
                         picker.captures.len()
                     );
                     if let Some(color) = picker.on_pointer_click(id) {
-                        eprintln!(
+                        log::info!(
                             "[picker]   COLOUR SELECTED: {} / {} / {}",
                             color.hex(),
                             color.rgb(),
@@ -711,7 +711,7 @@ impl cosmic::Application for AppModel {
                                 ColorFormat::Rgb => self.rgb.clone(),
                                 ColorFormat::Hsl => self.hsl.clone(),
                             };
-                            eprintln!("[picker]   auto-copy ({format:?}): {text}");
+                            log::info!("[picker]   auto-copy ({format:?}): {text}");
                             self.copied_target = Some(format);
                             self.copied_at = Some(Instant::now());
                             tasks.push(clipboard::write(text));
@@ -826,13 +826,13 @@ impl cosmic::Application for AppModel {
 
             // ── Picker cancelled (Escape or external close) ────────────
             Message::PickerCancel => {
-                eprintln!("[picker] PickerCancel received");
+                log::info!("[picker] PickerCancel received");
                 return self.cancel_picker();
             }
 
             // ─────────────────────────────────────────────────────────
             Message::OverlayCreated(id) => {
-                eprintln!("[picker] OverlayCreated({id:?}) — overlay surface ready");
+                log::debug!("[picker] OverlayCreated({id:?}) — overlay surface ready");
             }
         }
 
@@ -873,7 +873,7 @@ impl AppModel {
     fn start_capture(&mut self) -> Task<cosmic::Action<Message>> {
         // Ignore if already picking.
         if self.picker.is_some() {
-            eprintln!("[picker]   WARNING: ignored — picker already active");
+            log::warn!("[picker]   WARNING: ignored — picker already active");
             return Task::none();
         }
 
@@ -1080,7 +1080,7 @@ impl AppModel {
             // progress).  Render a full-screen transparent surface with
             // keyboard support so Escape works immediately.
             if self.pending_overlay_ids.contains(&id) {
-                eprintln!(
+                log::debug!(
                     "[picker] view_picker_overlay({id:?}) — pre-created, transparent placeholder"
                 );
                 let event_layer = MouseArea::new(
@@ -1096,7 +1096,7 @@ impl AppModel {
                 })
                 .into();
             }
-            eprintln!("[picker] view_picker_overlay({id:?}) — no picker, rendering placeholder");
+            log::debug!("[picker] view_picker_overlay({id:?}) — no picker, rendering placeholder");
             return space::horizontal().width(Length::Fixed(1.0)).into();
         };
 
@@ -1233,8 +1233,8 @@ impl AppModel {
     /// Destroy all overlay surfaces and reopen the popup.
     /// Used when the picker is cancelled or capture fails.
     fn cancel_picker(&mut self) -> Task<cosmic::Action<Message>> {
-        eprintln!("[picker] cancel_picker()");
-        eprintln!(
+        log::info!("[picker] cancel_picker()");
+        log::info!(
             "[picker]   picker state was {:?}",
             self.picker.as_ref().map(|p| p.state)
         );

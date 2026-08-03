@@ -34,7 +34,7 @@ fn print_help() {
 #[allow(clippy::significant_drop_in_scrutinee)]
 fn try_activate_existing_instance(action: &str) -> bool {
     let Ok(conn) = zbus::blocking::Connection::session() else {
-        eprintln!("[activation] no session bus available — starting a new instance");
+        log::warn!("[activation] no session bus available — starting a new instance");
         return false;
     };
 
@@ -46,7 +46,7 @@ fn try_activate_existing_instance(action: &str) -> bool {
         .and_then(|b| b.path(path).ok())
         .and_then(|b| b.build().ok())
     else {
-        eprintln!("[activation] could not build D-Bus proxy — starting a new instance");
+        log::warn!("[activation] could not build D-Bus proxy — starting a new instance");
         return false;
     };
 
@@ -60,17 +60,25 @@ fn try_activate_existing_instance(action: &str) -> bool {
 
     match proxy.activate_action(action, Vec::new(), platform_data) {
         Ok(()) => {
-            eprintln!("[activation] forwarded {action:?} to the running instance");
+            log::info!("[activation] forwarded {action:?} to the running instance");
             true
         }
         Err(err) => {
-            eprintln!("[activation] no running instance to activate ({err}) — starting a new one");
+            log::info!("[activation] no running instance to activate ({err}) — starting a new one");
             false
         }
     }
 }
 
 fn main() -> cosmic::iced::Result {
+    // Set up leveled logging (stderr → journald in production).  Users can
+    // override with RUST_LOG, e.g. RUST_LOG=cosmic_ext_applet_eyedropper=debug.
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default()
+            .default_filter_or("cosmic_ext_applet_eyedropper=info,wgpu=warn,cosmic=warn,iced=warn"),
+    )
+    .try_init();
+
     // Get the system's preferred languages.
     let requested_languages = i18n_embed::DesktopLanguageRequester::requested_languages();
 
@@ -87,7 +95,7 @@ fn main() -> cosmic::iced::Result {
                 return Ok(());
             }
             other => {
-                eprintln!("unknown argument: {other}");
+                log::error!("unknown argument: {other}");
                 print_help();
                 std::process::exit(2);
             }
