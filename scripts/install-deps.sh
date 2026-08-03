@@ -13,6 +13,7 @@ sudo apt-get install -y \
     libgles2-mesa-dev \
     libdbus-1-dev \
     libpipewire-0.3-dev \
+    libpulse-dev \
     libfontconfig-dev \
     libfreetype6-dev \
     libinput-dev \
