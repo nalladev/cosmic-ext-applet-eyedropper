@@ -36,8 +36,8 @@ jobs:
           fetch-depth: 0
       - name: Install build dependencies
         run: |
-          sudo apt update
-          sudo apt install -y libxkbcommon-dev libwayland-dev libdbus-1-dev libpulse-dev libpipewire-0.3-dev libinput-dev appstream
+          scripts/install-deps.sh
+          sudo apt-get install -y appstream
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@v1.15.0
       - name: Install packaging plugins
@@ -73,49 +73,53 @@ jobs:
           path: artifacts/
           retention-days: 1
 
-  build-flatpak:
-    name: Build Flatpak
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Install flatpak-builder
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak-builder
-
-      - name: Add flathub remote
-        run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-
-      - name: Install Flatpak runtime and SDK
-        run: |
-          sudo flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
-            org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
-
-      - name: Build Flatpak
-        run: |
-          flatpak-builder --force-clean --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ \
-            --install-deps-from=flathub --repo=flatpak-repo build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-
-      - name: Create Flatpak bundle
-        run: |
-          flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
-            io.github.nalladev.CosmicExtAppletEyedropper
-
-      - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: cosmic-ext-applet-eyedropper-flatpak
-          path: cosmic-ext-applet-eyedropper.flatpak
-          retention-days: 30
+  # Disabled: the canonical Flatpak build happens in pop-os/cosmic-flatpak.
+  # This job only produced a convenience .flatpak bundle for the GitHub
+  # release. Re-enable by uncommenting the block and adding it back to
+  # `needs` and the release uploads below.
+  # build-flatpak:
+  #   name: Build Flatpak
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v5
+  #       with:
+  #         fetch-depth: 0
+  #
+  #     - name: Install flatpak-builder
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y flatpak-builder
+  #
+  #     - name: Add flathub remote
+  #       run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+  #
+  #     - name: Install Flatpak runtime and SDK
+  #       run: |
+  #         sudo flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+  #           org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
+  #
+  #     - name: Build Flatpak
+  #       run: |
+  #         flatpak-builder --force-clean --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ \
+  #           --install-deps-from=flathub --repo=flatpak-repo build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+  #
+  #     - name: Create Flatpak bundle
+  #       run: |
+  #         flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
+  #           io.github.nalladev.CosmicExtAppletEyedropper
+  #
+  #     - name: Upload Flatpak artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: cosmic-ext-applet-eyedropper-flatpak
+  #         path: cosmic-ext-applet-eyedropper.flatpak
+  #         retention-days: 30
 
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: [build, build-flatpak]
+    needs: [build]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -138,11 +142,10 @@ jobs:
             artifacts/x86_64-unknown-linux-gnu/*.deb \
             artifacts/aarch64-unknown-linux-gnu/*.rpm \
             artifacts/x86_64-unknown-linux-gnu/*.rpm \
-            artifacts/cosmic-ext-applet-eyedropper-flatpak/cosmic-ext-applet-eyedropper.flatpak \
             --clobber
       - name: Create and upload checksums
         run: |
           TAG="${{ github.ref_name }}"
           cd artifacts
-          find . \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' -o -name '*.flatpak' \) | xargs sha256sum > SHA256SUMS
+          find . \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) | xargs sha256sum > SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --clobber --repo ${{ github.repository }}
