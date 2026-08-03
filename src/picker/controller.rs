@@ -68,6 +68,14 @@ pub struct PickerController {
     pub overlay_ids: Vec<cosmic::iced::window::Id>,
     /// Current hover state (set by pointer-motion handler).
     pub hover: Option<HoverInfo>,
+    /// Last damped sample position in global logical coordinates.
+    ///
+    /// While zoomed in, the sample position is exponentially smoothed
+    /// toward the raw cursor so small movements map to finer pixel steps;
+    /// stored here across motion events and used by click sampling so the
+    /// picked pixel always matches the magnifier.  `None` until the first
+    /// motion event (the sample then starts at the raw cursor position).
+    damped_global: Option<(f32, f32)>,
     /// Current lifecycle state.
     pub state: PickerState,
 }
@@ -105,6 +113,7 @@ impl PickerController {
             image_handles,
             overlay_ids,
             hover: None,
+            damped_global: None,
             state: PickerState::Picking,
         }
     }
@@ -170,6 +179,13 @@ impl PickerController {
     /// (output index, pixel position, sampled colour) and stores it in
     /// `self.hover`.
     ///
+    /// `sensitivity` (0.0..=1.0) damps the sample position toward the raw
+    /// cursor: 1.0 tracks the cursor exactly (normal 1:1 speed), while lower
+    /// values slow the sample down — used to make precise selection easier
+    /// while the magnifier is zoomed in.  The damped position also feeds
+    /// click sampling, so the picked pixel always matches what the magnifier
+    /// shows.
+    ///
     /// Returns the new [`HoverInfo`] on success, or `None` if the overlay
     /// window ID is unknown.
     pub fn on_pointer_motion(
@@ -177,6 +193,7 @@ impl PickerController {
         overlay_id: cosmic::iced::window::Id,
         surface_x: f32,
         surface_y: f32,
+        sensitivity: f32,
     ) -> Option<HoverInfo> {
         let output_idx = self.overlay_output_index(overlay_id)?;
         let output = &self.captures[output_idx];
@@ -187,6 +204,32 @@ impl PickerController {
         // Global compositor position = output origin + surface offset.
         let global_x = surface_x + output.pos_x as f32;
         let global_y = surface_y + output.pos_y as f32;
+
+        // Damp the sample position toward the raw cursor.  At full
+        // sensitivity (1.0) this is a no-op; while zoomed in, the sample
+        // trails the cursor so small movements map to smaller pixel steps.
+        // The smoothing runs in global coordinates so it stays correct when
+        // the cursor moves between outputs.
+        let factor = sensitivity.clamp(0.0, 1.0);
+        let (sample_x, sample_y) = match self.damped_global {
+            Some((px, py)) => (px + (global_x - px) * factor, py + (global_y - py) * factor),
+            None => (global_x, global_y),
+        };
+        self.damped_global = Some((sample_x, sample_y));
+
+        // Keep the sample inside the output's logical bounds.  The smoothing
+        // converges toward an in-bounds cursor, so this is a safety net
+        // (e.g. a large single-jump motion event).
+        let out_left = output.pos_x as f32;
+        let out_top = output.pos_y as f32;
+        let out_right = out_left + (output.logical_width as f32 - 1.0).max(0.0);
+        let out_bottom = out_top + (output.logical_height as f32 - 1.0).max(0.0);
+        let sample_x = sample_x.clamp(out_left, out_right);
+        let sample_y = sample_y.clamp(out_top, out_bottom);
+
+        // Surface-local (output-relative) coordinates of the sample.
+        let local_x = sample_x - out_left;
+        let local_y = sample_y - out_top;
 
         // Scale factors for logical → buffer coordinate conversion.
         let scale_x = if output.logical_width > 0 {
@@ -200,8 +243,8 @@ impl PickerController {
             1.0
         };
 
-        let pixel_x = (surface_x as f64 * scale_x) as u32;
-        let pixel_y = (surface_y as f64 * scale_y) as u32;
+        let pixel_x = (local_x as f64 * scale_x) as u32;
+        let pixel_y = (local_y as f64 * scale_y) as u32;
 
         let color = output
             .pixel_at(pixel_x, pixel_y)
@@ -209,8 +252,8 @@ impl PickerController {
 
         let info = HoverInfo {
             output_index: output_idx,
-            local_pos: (surface_x, surface_y),
-            global_pos: (global_x, global_y),
+            local_pos: (local_x, local_y),
+            global_pos: (sample_x, sample_y),
             pixel_pos: (pixel_x, pixel_y),
             color,
         };
