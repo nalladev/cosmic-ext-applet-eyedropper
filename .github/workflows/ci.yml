@@ -14,10 +14,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: extractions/setup-just@v4
       - name: Install dependencies
         run: scripts/install-deps.sh
       - name: Run clippy
-        run: cargo clippy --all --all-targets --all-features -- -D warnings
+        run: just lint
 
   validate-flatpak:
     name: Validate Flatpak Manifest

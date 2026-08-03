@@ -1,5 +1,6 @@
 name := 'cosmic-ext-applet-eyedropper'
 appid := 'io.github.nalladev.CosmicExtAppletEyedropper'
+repo-url := 'https://github.com/nalladev/cosmic-ext-applet-eyedropper.git'
 
 rootdir := ''
 prefix := '/usr'
@@ -45,9 +46,9 @@ fmt *args:
 check *args:
     cargo check {{args}}
 
-# Runs clippy lints
+# Runs clippy lints (same flags as CI)
 lint *args:
-    cargo clippy --all-features {{args}} -- -W clippy::pedantic
+    cargo clippy --all --all-targets --all-features {{args}} -- -D warnings -W clippy::pedantic
 
 # Runs clippy lints with JSON message format
 lint-json: (lint '--message-format=json')
@@ -87,12 +88,13 @@ build-rpm: build-release
 install-rpm:
     dnf install ./target/generate-rpm/*.rpm
 
-# Vendor dependencies locally
+# Vendor dependencies locally into vendor.tar
 vendor:
     mkdir -p .cargo
     cargo vendor --sync Cargo.toml | head -n -1 > .cargo/config.toml
     echo 'directory = "vendor"' >> .cargo/config.toml
     echo >> .cargo/config.toml
+    tar pcf vendor.tar .cargo vendor
     rm -rf .cargo vendor
 
 # Extracts vendored dependencies
@@ -107,7 +109,7 @@ vendor-flatpak:
     OUT="flatpak/cargo-sources.json"
     if [ ! -f "$OUT" ] || [ Cargo.lock -nt "$OUT" ]; then
         echo "Regenerating $OUT ..."
-        python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o "$OUT" Cargo.lock
+        python3 flatpak/flatpak-cargo-generator.py -o "$OUT" Cargo.lock
     else
         echo "$OUT is up to date"
     fi
@@ -125,6 +127,23 @@ flatpak-build-install: vendor-flatpak
 # Uninstall flatpak
 flatpak-uninstall:
     flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
+
+# Regenerate cargo sources and sync the manifest + sources into a checkout of
+# pop-os/cosmic-flatpak (the canonical Flatpak home for COSMIC applets).
+# Usage: just sync-flatpak /path/to/cosmic-flatpak
+sync-flatpak dir: vendor-flatpak
+    #!/usr/bin/env bash
+    set -euo pipefail
+    DEST="{{dir}}/app/{{appid}}"
+    if [ ! -d "$DEST" ]; then
+        echo "error: $DEST not found — clone pop-os/cosmic-flatpak first"
+        exit 1
+    fi
+    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
+    python3 scripts/sync-cosmic-flatpak.py "$DEST" "{{appid}}" "{{repo-url}}" "v$VERSION"
+    cp flatpak/cargo-sources.json "$DEST/cargo-sources.json"
+    echo "Synced to $DEST with tag v$VERSION."
+    echo "Next: cd into the cosmic-flatpak checkout, review with git diff, commit, and open a PR."
 
 # Bump cargo version, create git commit, and create tag with message
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
