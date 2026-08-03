@@ -9,9 +9,11 @@ An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick
 ## Features
 
 - **Freeze mode** — click the applet, then click anywhere on screen to pick a colour
-- **Magnifier preview** — a zoomed-in view follows your cursor so you can see exactly which pixel you're selecting
+- **Magnifier preview** — a zoomed-in lens follows your cursor so you can see exactly which pixel you're selecting; scroll to zoom from 8× to 24×, rendered on the GPU with crisp nearest-neighbour pixels
 - **Multiple formats** — copy the picked colour as hex (`#ff0000`), RGB (`rgb(255, 0, 0)`), or HSL (`hsl(0, 100%, 50%)`)
+- **Auto-copy on select** — optional setting that copies the picked colour to the clipboard the moment you click, using a configurable default format (hex, RGB, or HSL)
 - **Popup with colour history** — the panel popup shows your last selection with quick-copy buttons
+- **Keyboard-shortcut friendly** — `cosmic-ext-applet-eyedropper --pick` starts colour-picker mode immediately; if the applet is already running, the request is forwarded to it over D-Bus, so you can bind the command to a shortcut and pick a colour in one step
 
 ## Installation
 
@@ -72,7 +74,9 @@ just build-release     # Release build
 just build-debug       # Debug build
 just run               # Run standalone for testing
 sudo just install      # Install system-wide
-just check             # Run clippy lints
+just check             # Type-check (cargo check)
+just lint              # Run clippy lints
+RUST_LOG=debug just run  # Run with verbose debug logging
 ```
 
 ## Contributing
