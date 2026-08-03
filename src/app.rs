@@ -176,7 +176,6 @@ pub enum Message {
     SetDefaultFormat(segmented_button::Entity),
 
     // ── Capture flow ────────────────────────────────────────────────
-    // ────────────────────────────────────────────────
     /// The eyedropper button was clicked in the popup.
     EyedropperClicked,
     /// A `pick` request arrived via D-Bus activation (`--pick` forwarded
@@ -351,7 +350,6 @@ impl cosmic::Application for AppModel {
     #[allow(clippy::too_many_lines, clippy::many_single_char_names)]
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
-            // ────────────────────────────────────────────────
             Message::TogglePopup => {
                 // Ignore while in picker mode.
                 if self.picker.is_some() {
@@ -385,7 +383,6 @@ impl cosmic::Application for AppModel {
             }
 
             // ── Popup was closed ────────────────────────────────────────
-            // ────────────────────────────────────────────────
             Message::PopupClosed(id) => {
                 log::info!("[picker] PopupClosed({id:?})");
 
@@ -403,19 +400,16 @@ impl cosmic::Application for AppModel {
                 }
             }
 
-            // ────────────────────────────────────────────────
             Message::UpdateConfig(config) => {
                 self.config = config;
                 self.sync_color_format_model();
             }
 
-            // ────────────────────────────────────────────────
             Message::SetCopyOnSelect(value) => {
                 self.config.copy_on_select = value;
                 let _ = self.config_context.set("copy_on_select", value);
             }
 
-            // ────────────────────────────────────────────────
             Message::SetDefaultFormat(entity) => {
                 self.color_format_model.activate(entity);
                 if let Some(format) = self.color_format_model.data::<ColorFormat>(entity).copied()
@@ -426,19 +420,16 @@ impl cosmic::Application for AppModel {
                 }
             }
 
-            // ────────────────────────────────────────────────
             Message::EyedropperClicked => {
                 log::info!("[picker] EyedropperClicked — starting Screenshot portal capture");
                 return self.start_capture();
             }
 
-            // ────────────────────────────────────────────────
             Message::DbusPick => {
                 log::info!("[picker] DbusPick — pick requested via D-Bus activation");
                 return self.start_capture();
             }
 
-            // ────────────────────────────────────────────────
             Message::CaptureCompleted(captures) => {
                 let t_capture = std::time::Instant::now();
                 log::info!("[picker] CaptureCompleted — {} outputs", captures.len());
@@ -830,7 +821,6 @@ impl cosmic::Application for AppModel {
                 return self.cancel_picker();
             }
 
-            // ─────────────────────────────────────────────────────────
             Message::OverlayCreated(id) => {
                 log::debug!("[picker] OverlayCreated({id:?}) — overlay surface ready");
             }

@@ -128,7 +128,6 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
                 log::warn!("[capture]   warning: failed to remove temp file: {e}");
             }
 
-            // Compute the total logical desktop area from all known outputs.
             let wl_outputs = h.outputs();
             let n = wl_outputs.len();
             log::debug!("[capture]   {n} Wayland output(s) for cropping");

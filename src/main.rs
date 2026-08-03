@@ -79,13 +79,12 @@ fn main() -> cosmic::iced::Result {
     )
     .try_init();
 
-    // Get the system's preferred languages.
     let requested_languages = i18n_embed::DesktopLanguageRequester::requested_languages();
 
     // Enable localizations to be applied.
     i18n::init(&requested_languages);
 
-    // Parse command-line arguments.
+    // Parse command-line arguments (--pick / --help).
     let mut pick = false;
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
