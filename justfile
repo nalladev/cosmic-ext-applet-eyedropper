@@ -113,10 +113,26 @@ vendor-flatpak:
         echo "$OUT is up to date"
     fi
 
-# Build and install flatpak
+# Build and install the local test build
 flatpak-install: vendor-flatpak
+    #!/usr/bin/env bash
+    set -euo pipefail
+    APP="io.github.nalladev.CosmicExtAppletEyedropper"
+    if flatpak info "$APP" >/dev/null 2>&1; then
+        ORIGIN="$(flatpak info --show-origin "$APP" 2>/dev/null || true)"
+        if [ -n "$ORIGIN" ]; then
+            echo "replacing the production ($ORIGIN) copy with the local test build"
+            echo "  after testing, restore with: just flatpak-restore"
+        else
+            echo "replacing the existing local test build"
+        fi
+    else
+        echo "first install of the local test build"
+    fi
     flatpak-builder --user --install --force-clean build-dir \
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
+    echo "installed local test build v$VERSION — add the applet to the panel to test"
 
 # Replace the local test build with the production (Flathub) copy.
 # No-op when the production copy is already installed.
