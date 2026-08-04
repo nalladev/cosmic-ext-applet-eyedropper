@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Insert a <release> entry into resources/app.metainfo.xml.
 
-Invoked by ``just tag`` so the AppStream release notes shown in app centres
+Invoked by ``just release`` so the AppStream release notes shown in app centres
 (and required by Flathub) stay in sync with the git tag. Idempotent: if the
 version is already present the file is left unchanged.
 

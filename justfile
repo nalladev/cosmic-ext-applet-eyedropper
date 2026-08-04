@@ -101,55 +101,68 @@ vendor-extract:
     rm -rf vendor
     tar pxf vendor.tar
 
-# Regenerate flatpak cargo sources only if Cargo.lock changed
+# Regenerate flatpak cargo sources only if Cargo.lock changed.
+# The generator is cached in ${TMPDIR:-/tmp} and refreshed on reuse.
 vendor-flatpak:
     #!/usr/bin/env bash
     set -euo pipefail
     OUT="flatpak/cargo-sources.json"
     if [ ! -f "$OUT" ] || [ Cargo.lock -nt "$OUT" ]; then
         echo "Regenerating $OUT ..."
-        python3 flatpak/flatpak-cargo-generator.py -o "$OUT" Cargo.lock
+        CACHE="${TMPDIR:-/tmp}/flatpak-builder-tools"
+        if [ ! -d "$CACHE/.git" ]; then
+            git clone --quiet --depth 1 https://github.com/flatpak/flatpak-builder-tools.git "$CACHE"
+        else
+            git -C "$CACHE" fetch --quiet --depth 1 origin master
+            git -C "$CACHE" reset --quiet --hard FETCH_HEAD
+        fi
+        python3 "$CACHE/cargo/flatpak-cargo-generator.py" -o "$OUT" Cargo.lock
     else
         echo "$OUT is up to date"
     fi
 
-# Build and install the local test build
+# Build and install the local test build. The manifest is switched to the
+# working tree for the build and back to the release tag afterwards.
 flatpak-install: vendor-flatpak
-    flatpak-builder --user --install --force-clean build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+    #!/usr/bin/env bash
+    set -euo pipefail
+    MANIFEST="flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json"
+    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
+    python3 scripts/flatpak-manifest.py to-dir
+    trap 'python3 scripts/flatpak-manifest.py to-git "$VERSION" "{{repo-url}}"' EXIT
+    flatpak-builder --user --install --force-clean build-dir "$MANIFEST"
+    trap - EXIT
+    python3 scripts/flatpak-manifest.py to-git "$VERSION" "{{repo-url}}"
     echo "Installed local test build — add the applet to the panel to test"
+    echo "Replaced any existing applet (store version or local build)"
 
 # Remove the local test build.
 flatpak-uninstall:
     flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
-    printf 'Uninstalled applet. To get the production copy back, reinstall from the COSMIC store or run:\n  flatpak install --user cosmic io.github.nalladev.CosmicExtAppletEyedropper\n'
+    echo "To get the production copy back, reinstall from the COSMIC store."
 
-# Bump cargo version, add the AppStream release entry, commit, and tag
+# Bump the version in Cargo.toml, run cargo check, commit everything staged, and tag.
+# Any changes you staged beforehand (e.g. the AppStream entry via `just release`)
+# are included in the commit automatically.
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
 tag version message='':
     # Normalize version: strip leading 'v' if present
     norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"$norm_version"'"/' '{}' \; -exec git add '{}' \; && \
     cargo check && \
-    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
-    git add resources/app.metainfo.xml && \
     git add Cargo.lock && \
     git commit -m 'release: '"$norm_version" && \
     bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
 
-# Regenerate cargo sources and sync the manifest + sources into a checkout of
-# pop-os/cosmic-flatpak (the canonical Flatpak home for COSMIC applets).
-# Usage: just sync-flatpak /path/to/cosmic-flatpak
-sync-flatpak dir: vendor-flatpak
-    #!/usr/bin/env bash
-    set -euo pipefail
-    DEST="{{dir}}/app/{{appid}}"
-    if [ ! -d "$DEST" ]; then
-        echo "error: $DEST not found — clone pop-os/cosmic-flatpak first"
-        exit 1
-    fi
-    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
-    python3 scripts/sync-cosmic-flatpak.py "$DEST" "{{appid}}" "{{repo-url}}" "v$VERSION"
-    cp flatpak/cargo-sources.json "$DEST/cargo-sources.json"
-    echo "Synced to $DEST with tag v$VERSION."
-    echo "Next: cd into the cosmic-flatpak checkout, review with git diff, commit, and open a PR."
+# Update the AppStream entry and the Flatpak manifest tag, then run `just tag`
+# (the staged changes land in the release commit) and push the new tag, which
+# triggers the GitHub release workflow.
+# Usage: just release 1.2.0 "Release notes here"
+release version message='':
+    # Normalize version: strip leading 'v' if present
+    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
+    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
+    python3 scripts/flatpak-manifest.py to-git "$norm_version" "{{repo-url}}" && \
+    git add resources/app.metainfo.xml flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json && \
+    just tag "{{version}}" "{{message}}" && \
+    git push origin v"$norm_version"
