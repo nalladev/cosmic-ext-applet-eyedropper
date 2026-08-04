@@ -113,18 +113,6 @@ vendor-flatpak:
         echo "$OUT is up to date"
     fi
 
-# Build flatpak only (stages into build-dir/; not installed)
-flatpak-build: vendor-flatpak
-    flatpak-builder --force-clean build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-
-# Build and export a .flatpak bundle
-flatpak-bundle: vendor-flatpak
-    flatpak-builder --force-clean --repo=flatpak-repo build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-    flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
-        io.github.nalladev.CosmicExtAppletEyedropper
-
 # Build and install flatpak
 flatpak-build-install: vendor-flatpak
     flatpak-builder --user --install --force-clean build-dir \
