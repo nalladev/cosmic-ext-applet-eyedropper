@@ -117,13 +117,12 @@ vendor-flatpak:
 flatpak-install: vendor-flatpak
     flatpak-builder --user --install --force-clean build-dir \
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-    echo "installed local test build — add the applet to the panel to test"
+    echo "Installed local test build — add the applet to the panel to test"
 
 # Remove the local test build.
-# To get the production copy back, reinstall from the COSMIC store or run:
-#   flatpak install --user cosmic io.github.nalladev.CosmicExtAppletEyedropper
 flatpak-uninstall:
     flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
+    printf 'Uninstalled applet. To get the production copy back, reinstall from the COSMIC store or run:\n  flatpak install --user cosmic io.github.nalladev.CosmicExtAppletEyedropper\n'
 
 # Bump cargo version, add the AppStream release entry, commit, and tag
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
