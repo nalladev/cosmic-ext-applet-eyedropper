@@ -22,6 +22,7 @@ An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick
 The applet is published in the COSMIC flatpak repository. Install it from the COSMIC Store, or:
 
 ```sh
+flatpak remote-add --if-not-exists --user cosmic https://apt.pop-os.org/cosmic/cosmic.flatpakrepo
 flatpak install --user cosmic io.github.nalladev.CosmicExtAppletEyedropper
 ```
 
