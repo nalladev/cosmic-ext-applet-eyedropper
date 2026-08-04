@@ -117,8 +117,7 @@ vendor-flatpak:
 flatpak-install: vendor-flatpak
     flatpak-builder --user --install --force-clean build-dir \
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
-    echo "installed local test build v$VERSION — add the applet to the panel to test"
+    echo "installed local test build — add the applet to the panel to test"
 
 # Replace the local test build with the production (cosmic-flatpak) copy.
 # No-op when the production copy is already installed.
