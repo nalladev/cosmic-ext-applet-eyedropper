@@ -114,13 +114,23 @@ vendor-flatpak:
     fi
 
 # Build and install flatpak
-flatpak-build-install: vendor-flatpak
+flatpak-install: vendor-flatpak
     flatpak-builder --user --install --force-clean build-dir \
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
 
-# Uninstall flatpak
-flatpak-uninstall:
-    flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
+# Replace the local test build with the production (Flathub) copy.
+# No-op when the production copy is already installed.
+flatpak-restore:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    APP="io.github.nalladev.CosmicExtAppletEyedropper"
+    if flatpak info --show-origin "$APP" 2>/dev/null | grep -qx "flathub"; then
+        echo "production copy already installed — nothing to do"
+        exit 0
+    fi
+    flatpak uninstall --user -y "$APP" || true
+    flatpak install --user -y flathub "$APP"
+    echo "restored $APP from flathub"
 
 # Bump cargo version, add the AppStream release entry, commit, and tag
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
