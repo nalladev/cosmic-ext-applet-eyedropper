@@ -50,8 +50,8 @@ Requires `flatpak-builder` and the Freedesktop SDK:
 # Install the Freedesktop SDK extension (if not already installed)
 flatpak install --user org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08
 
-# Build and install the Flatpak
-just flatpak-build
+# Build and install the Flatpak (from the working tree)
+just flatpak-install
 ```
 
 This auto-regenerates the Flatpak cargo sources when `Cargo.lock` changes.

@@ -102,7 +102,7 @@ vendor-extract:
     tar pxf vendor.tar
 
 # Regenerate flatpak cargo sources only if Cargo.lock changed.
-# The generator is cached in ${TMPDIR:-/tmp} and refreshed on reuse.
+# The generator is cloned into ${TMPDIR:-/tmp} once; /tmp self-cleans on reboot.
 vendor-flatpak:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -112,27 +112,23 @@ vendor-flatpak:
         CACHE="${TMPDIR:-/tmp}/flatpak-builder-tools"
         if [ ! -d "$CACHE/.git" ]; then
             git clone --quiet --depth 1 https://github.com/flatpak/flatpak-builder-tools.git "$CACHE"
-        else
-            git -C "$CACHE" fetch --quiet --depth 1 origin master
-            git -C "$CACHE" reset --quiet --hard FETCH_HEAD
         fi
         python3 "$CACHE/cargo/flatpak-cargo-generator.py" -o "$OUT" Cargo.lock
     else
         echo "$OUT is up to date"
     fi
 
-# Build and install the local test build. The manifest is switched to the
-# working tree for the build and back to the release tag afterwards.
+# Build and install the local test build from a throwaway copy of the
+# manifest (dir source); the committed manifest keeps its release tag.
 flatpak-install: vendor-flatpak
     #!/usr/bin/env bash
     set -euo pipefail
-    MANIFEST="flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json"
-    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
-    python3 scripts/flatpak-manifest.py to-dir
-    trap 'python3 scripts/flatpak-manifest.py to-git "$VERSION" "{{repo-url}}"' EXIT
-    flatpak-builder --user --install --force-clean build-dir "$MANIFEST"
+    LOCAL="flatpak/local-build.json"
+    python3 scripts/flatpak-manifest.py to-dir "$LOCAL"
+    trap 'rm -f "$LOCAL"' EXIT
+    flatpak-builder --user --install --force-clean build-dir "$LOCAL"
     trap - EXIT
-    python3 scripts/flatpak-manifest.py to-git "$VERSION" "{{repo-url}}"
+    rm -f "$LOCAL"
     echo "Installed local test build — add the applet to the panel to test"
     echo "Replaced any existing applet (store version or local build)"
 

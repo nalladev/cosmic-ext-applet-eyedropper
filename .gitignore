@@ -7,6 +7,7 @@ vendor/
 vendor.tar
 .flatpak-builder/
 flatpak-builder-tools/
+flatpak/local-build.json
 build-dir/
 builddir/
 Cargo.toml.patched
