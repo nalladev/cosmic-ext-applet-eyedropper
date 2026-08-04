@@ -64,7 +64,6 @@ install:
     install -Dm0644 resources/app.metainfo.xml {{appdata-dst}}
     install -Dm0644 resources/icon.svg {{icon-dst}}
 
-
 # Uninstalls installed files
 uninstall:
     rm {{bin-dst}} {{desktop-dst}} {{icon-dst}}
@@ -114,10 +113,17 @@ vendor-flatpak:
         echo "$OUT is up to date"
     fi
 
-# Build flatpak only
+# Build flatpak only (stages into build-dir/; not installed)
 flatpak-build: vendor-flatpak
-    flatpak-builder --user --force-clean build-dir \
+    flatpak-builder --force-clean build-dir \
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+
+# Build and export a .flatpak bundle
+flatpak-bundle: vendor-flatpak
+    flatpak-builder --force-clean --repo=flatpak-repo build-dir \
+        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+    flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
+        io.github.nalladev.CosmicExtAppletEyedropper
 
 # Build and install flatpak
 flatpak-build-install: vendor-flatpak
@@ -127,6 +133,19 @@ flatpak-build-install: vendor-flatpak
 # Uninstall flatpak
 flatpak-uninstall:
     flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
+
+# Bump cargo version, add the AppStream release entry, commit, and tag
+# Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
+tag version message='':
+    # Normalize version: strip leading 'v' if present
+    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
+    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"$norm_version"'"/' '{}' \; -exec git add '{}' \; && \
+    cargo check && \
+    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
+    git add resources/app.metainfo.xml && \
+    git add Cargo.lock && \
+    git commit -m 'release: '"$norm_version" && \
+    bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
 
 # Regenerate cargo sources and sync the manifest + sources into a checkout of
 # pop-os/cosmic-flatpak (the canonical Flatpak home for COSMIC applets).
@@ -144,16 +163,3 @@ sync-flatpak dir: vendor-flatpak
     cp flatpak/cargo-sources.json "$DEST/cargo-sources.json"
     echo "Synced to $DEST with tag v$VERSION."
     echo "Next: cd into the cosmic-flatpak checkout, review with git diff, commit, and open a PR."
-
-# Bump cargo version, add the AppStream release entry, commit, and tag
-# Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
-tag version message='':
-    # Normalize version: strip leading 'v' if present
-    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
-    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"$norm_version"'"/' '{}' \; -exec git add '{}' \; && \
-    cargo check && \
-    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
-    git add resources/app.metainfo.xml && \
-    git add Cargo.lock && \
-    git commit -m 'release: '"$norm_version" && \
-    bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
