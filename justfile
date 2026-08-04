@@ -145,13 +145,15 @@ sync-flatpak dir: vendor-flatpak
     echo "Synced to $DEST with tag v$VERSION."
     echo "Next: cd into the cosmic-flatpak checkout, review with git diff, commit, and open a PR."
 
-# Bump cargo version, create git commit, and create tag with message
+# Bump cargo version, add the AppStream release entry, commit, and tag
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
 tag version message='':
     # Normalize version: strip leading 'v' if present
     norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
     find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"$norm_version"'"/' '{}' \; -exec git add '{}' \; && \
     cargo check && \
+    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
+    git add resources/app.metainfo.xml && \
     git add Cargo.lock && \
     git commit -m 'release: '"$norm_version" && \
     bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
