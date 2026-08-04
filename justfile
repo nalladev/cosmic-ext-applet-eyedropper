@@ -25,8 +25,13 @@ clean:
 clean-vendor:
     rm -rf .cargo vendor vendor.tar
 
-# `cargo clean` and removes vendored dependencies
+# Clean everything build-related: cargo artifacts, vendored deps, flatpak build
+# dirs + cache, python bytecode. Downside: next build and flatpak-install start
+# cold (recompile / re-download). Don't run while a flatpak build is in progress
+# (it removes the temp manifest and build dir being used).
 clean-dist: clean clean-vendor
+    rm -rf build-dir .flatpak-builder flatpak-repo flatpak/local-build.json
+    rm -rf scripts/__pycache__
 
 # Compiles with debug profile
 build-debug *args:
