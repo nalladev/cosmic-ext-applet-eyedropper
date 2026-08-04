@@ -120,19 +120,25 @@ flatpak-install: vendor-flatpak
     VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
     echo "installed local test build v$VERSION — add the applet to the panel to test"
 
-# Replace the local test build with the production (Flathub) copy.
+# Replace the local test build with the production (cosmic-flatpak) copy.
 # No-op when the production copy is already installed.
 flatpak-restore:
     #!/usr/bin/env bash
     set -euo pipefail
     APP="io.github.nalladev.CosmicExtAppletEyedropper"
-    if flatpak info --show-origin "$APP" 2>/dev/null | grep -qx "flathub"; then
-        echo "production copy already installed — nothing to do"
+    ORIGIN="$(flatpak info --show-origin "$APP" 2>/dev/null || true)"
+    if [ "$ORIGIN" = "cosmic" ]; then
+        echo "production (cosmic) copy already installed — nothing to do"
+        exit 0
+    fi
+    if [ -z "$ORIGIN" ]; then
+        echo "no copy installed — nothing to restore"
         exit 0
     fi
     flatpak uninstall --user -y "$APP" || true
-    flatpak install --user -y flathub "$APP"
-    echo "restored $APP from flathub"
+    flatpak remote-add --if-not-exists --user cosmic https://apt.pop-os.org/cosmic/cosmic.flatpakrepo
+    flatpak install --user -y cosmic "$APP"
+    echo "restored $APP from cosmic-flatpak"
 
 # Bump cargo version, add the AppStream release entry, commit, and tag
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
