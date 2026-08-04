@@ -17,6 +17,14 @@ An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick
 
 ## Installation
 
+### From the COSMIC store
+
+The applet is published in the COSMIC flatpak repository. Install it from the COSMIC Store, or:
+
+```sh
+flatpak install --user cosmic io.github.nalladev.CosmicExtAppletEyedropper
+```
+
 ### From a release
 
 Download the `.deb`, `.rpm`, or tarball for your architecture from the [releases page](https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/latest).
