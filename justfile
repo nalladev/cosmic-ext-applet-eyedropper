@@ -119,25 +119,11 @@ flatpak-install: vendor-flatpak
         flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
     echo "installed local test build — add the applet to the panel to test"
 
-# Replace the local test build with the production (cosmic-flatpak) copy.
-# No-op when the production copy is already installed.
-flatpak-restore:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    APP="io.github.nalladev.CosmicExtAppletEyedropper"
-    ORIGIN="$(flatpak info --show-origin "$APP" 2>/dev/null || true)"
-    if [ "$ORIGIN" = "cosmic" ]; then
-        echo "production (cosmic) copy already installed — nothing to do"
-        exit 0
-    fi
-    if [ -z "$ORIGIN" ]; then
-        echo "no copy installed — nothing to restore"
-        exit 0
-    fi
-    flatpak uninstall --user -y "$APP" || true
-    flatpak remote-add --if-not-exists --user cosmic https://apt.pop-os.org/cosmic/cosmic.flatpakrepo
-    flatpak install --user -y cosmic "$APP"
-    echo "restored $APP from cosmic-flatpak"
+# Remove the local test build.
+# To get the production copy back, reinstall from the COSMIC store or run:
+#   flatpak install --user cosmic io.github.nalladev.CosmicExtAppletEyedropper
+flatpak-uninstall:
+    flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
 
 # Bump cargo version, add the AppStream release entry, commit, and tag
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
