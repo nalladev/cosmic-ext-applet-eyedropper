@@ -198,7 +198,7 @@ pub enum Message {
     PointerClicked(Id),
 
     // ── Magnifier zoom ────────────────────────────────────────────────
-    /// Scroll-delta from a mouse wheel or touchpad pinch.
+    /// Scroll-delta from a mouse wheel or touchpad two-finger scroll.
     MagnifierZoom(f32),
     /// Periodic frame tick — applies pending zoom deltas.
     FrameTick,
@@ -700,7 +700,7 @@ impl cosmic::Application for AppModel {
                 return Task::none().map(cosmic::Action::App);
             }
 
-            // ── Magnifier zoom (scroll / pinch on overlay) ─────────────
+            // ── Magnifier zoom (scroll on overlay) ──────────────────────
             Message::MagnifierZoom(delta_y) => {
                 // Accumulate — applied once per frame in FrameTick.
                 self.magnifier.pending_zoom_delta += delta_y;
@@ -1064,12 +1064,15 @@ impl AppModel {
         };
 
         // Event layer: transparent overlay for pointer tracking.
-        let on_scroll = move |delta: mouse::ScrollDelta| {
-            let y = match delta {
-                // Lines (mouse wheel) or Pixels (touchpad two-finger scroll).
-                mouse::ScrollDelta::Lines { y, .. } | mouse::ScrollDelta::Pixels { y, .. } => y,
-            };
-            Message::MagnifierZoom(y)
+        let on_scroll = move |delta: mouse::ScrollDelta| match delta {
+            // Mouse wheel: one notch = two zoom levels (snappy).
+            // Snapping to the sign also keeps the feel consistent across
+            // backends, which report different line-delta magnitudes.
+            mouse::ScrollDelta::Lines { y, .. } => Message::MagnifierZoom(y.signum() * 2.0),
+            // Touchpad two-finger scroll (and smooth-wheel mice): fine-grained
+            // pixel deltas, scaled down so they accumulate across frames
+            // instead of jumping several levels at once.
+            mouse::ScrollDelta::Pixels { y, .. } => Message::MagnifierZoom(y * 0.2),
         };
         let event_layer = MouseArea::new(
             container(space::horizontal())
