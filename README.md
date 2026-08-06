@@ -2,9 +2,9 @@
 
 An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick any colour from your screen and copy it as hex, RGB, or HSL.
 
-![Screenshot](/resources/screenshot-1.png)
+![Magnifier in the colour-picking state](/resources/screenshot-1.png)
 
-![Screenshot](/resources/screenshot-2.png)
+![The applet menu opened from the panel](/resources/screenshot-2.png)
 
 ## Features
 

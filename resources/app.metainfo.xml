@@ -43,13 +43,13 @@
   <url type="vcs-browser">https://github.com/nalladev/cosmic-ext-applet-eyedropper</url>
   <screenshots>
     <screenshot type="default">
-      <caption>Eyedropper popup showing color details in HEX, RGB, and HSL</caption>
-      <caption xml:lang="cs">Vyskakovací okno kapátka zobrazující podrobnosti o barvě ve formátech HEX, RGB a HSL</caption>
+      <caption>Magnifier in the color-picking state</caption>
+      <caption xml:lang="cs">Lupa kapátka v režimu výběru barvy</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-1.png</image>
     </screenshot>
     <screenshot>
-      <caption>Color picker overlay for selecting colors from anywhere on screen</caption>
-      <caption xml:lang="cs">Překryvná vrstva pro výběr barev z libovolného místa na obrazovce</caption>
+      <caption>The applet menu opened from the panel</caption>
+      <caption xml:lang="cs">Nabídka appletu otevřená z panelu</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-2.png</image>
     </screenshot>
   </screenshots>
