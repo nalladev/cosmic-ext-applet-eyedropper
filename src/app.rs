@@ -2,8 +2,6 @@
 
 use std::time::{Duration, Instant};
 
-use ::image::EncodableLayout;
-
 use crate::activation;
 use crate::config::{ColorFormat, Config};
 use crate::fl;
@@ -386,8 +384,6 @@ impl cosmic::Application for AppModel {
 
             // ── Popup was closed ────────────────────────────────────────
             Message::PopupClosed(id) => {
-                log::info!("[picker] PopupClosed({id:?})");
-
                 // Normal popup lifecycle (user closed it manually).
                 if self.popup.as_ref() == Some(&id) {
                     self.popup = None;
@@ -433,21 +429,7 @@ impl cosmic::Application for AppModel {
             }
 
             Message::CaptureCompleted(captures) => {
-                let t_capture = std::time::Instant::now();
-                log::info!("[picker] CaptureCompleted — {} outputs", captures.len());
-                for cap in &captures {
-                    log::debug!(
-                        "[picker]   output: {} {}x{} @({},{}) logical {}x{} rgba={}b",
-                        cap.name,
-                        cap.width,
-                        cap.height,
-                        cap.pos_x,
-                        cap.pos_y,
-                        cap.logical_width,
-                        cap.logical_height,
-                        cap.rgba.as_bytes().len(),
-                    );
-                }
+                log::debug!("[picker] CaptureCompleted — {} outputs", captures.len());
 
                 if captures.is_empty() {
                     log::error!("[picker]   captures is empty — error + cancel");
@@ -469,11 +451,9 @@ impl cosmic::Application for AppModel {
                     return Task::none();
                 }
 
-                log::debug!("[picker]   collecting pre-built image handles...");
                 let mut image_handles = Vec::with_capacity(captures.len());
-                for (i, cap) in captures.iter().enumerate() {
+                for cap in &captures {
                     image_handles.push(cap.image_handle.clone());
-                    log::debug!("[picker]   image_handle[{i}]: {}x{}", cap.width, cap.height);
                 }
 
                 // If overlays were pre-created (transparent) during
@@ -483,42 +463,25 @@ impl cosmic::Application for AppModel {
                 // flicker-free transition.
                 if !self.pending_overlay_ids.is_empty() {
                     let overlay_ids = std::mem::take(&mut self.pending_overlay_ids);
-                    log::debug!(
-                        "[picker]   reusing {} pre-created overlay(s): {:?}",
-                        overlay_ids.len(),
-                        overlay_ids
-                    );
                     let n_overlays = overlay_ids.len();
                     self.picker = Some(PickerController::new_with_captures(
                         captures,
                         image_handles,
                         overlay_ids,
                     ));
-                    log::info!(
-                        "[picker]   picker created in Picking state with {n_overlays} overlays (pre-created path)"
-                    );
                     log::debug!(
-                        "[picker]   CaptureCompleted handler took {:?}",
-                        t_capture.elapsed(),
+                        "[picker]   picker created in Picking state with {n_overlays} overlays"
                     );
                     return Task::none();
                 }
 
                 // Fallback: create overlay windows now (no pre-creation).
-                log::debug!(
-                    "[picker]   creating overlay windows on {} outputs...",
-                    self.outputs.len()
-                );
                 let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
                 let mut overlay_ids = Vec::new();
 
-                for (i, output_state) in self.outputs.iter().enumerate() {
+                for output_state in self.outputs.iter() {
                     let overlay_id = output_state.id;
                     overlay_ids.push(overlay_id);
-                    log::debug!(
-                        "[picker]   creating overlay[{i}] id={overlay_id:?} on output '{}",
-                        output_state.name
-                    );
                     tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
                         id: overlay_id,
                         layer: Layer::Overlay,
@@ -539,10 +502,8 @@ impl cosmic::Application for AppModel {
                     image_handles,
                     overlay_ids,
                 ));
-                log::info!("[picker]   picker created in Picking state with {n_overlays} overlays");
                 log::debug!(
-                    "[picker]   CaptureCompleted handler took {:?}",
-                    t_capture.elapsed(),
+                    "[picker]   picker created in Picking state with {n_overlays} overlays"
                 );
 
                 return Task::batch(tasks);
@@ -672,74 +633,69 @@ impl cosmic::Application for AppModel {
 
             // ── Pointer clicked on a picker overlay ───────────────────
             Message::PointerClicked(id) => {
-                log::info!("[picker] PointerClicked({id:?})");
-                if let Some(picker) = self.picker.as_mut() {
-                    log::debug!(
-                        "[picker]   picker state={:?}, captures={}",
-                        picker.state,
-                        picker.captures.len()
+                log::debug!("[picker] PointerClicked({id:?})");
+                if let Some(picker) = self.picker.as_mut()
+                    && let Some(color) = picker.on_pointer_click(id)
+                {
+                    log::info!(
+                        "[picker]   COLOUR SELECTED: {} / {} / {}",
+                        color.hex(),
+                        color.rgb(),
+                        color.hsl()
                     );
-                    if let Some(color) = picker.on_pointer_click(id) {
-                        log::info!(
-                            "[picker]   COLOUR SELECTED: {} / {} / {}",
-                            color.hex(),
-                            color.rgb(),
-                            color.hsl()
-                        );
-                        // Colour selected — exit picker mode.
-                        let overlays = picker.overlay_ids.clone();
-                        self.picker.take();
+                    // Colour selected — exit picker mode.
+                    let overlays = picker.overlay_ids.clone();
+                    self.picker.take();
 
-                        self.sampled = Some(color);
-                        self.update_color_strings(color);
+                    self.sampled = Some(color);
+                    self.update_color_strings(color);
 
-                        let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
+                    let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
 
-                        // Automatically copy the picked colour when enabled,
-                        // using the configured default format.
-                        if self.config.copy_on_select {
-                            let format = self.config.default_color_format;
-                            let text = match format {
-                                ColorFormat::Hex => self.hex.clone(),
-                                ColorFormat::Rgb => self.rgb.clone(),
-                                ColorFormat::Hsl => self.hsl.clone(),
-                            };
-                            log::info!("[picker]   auto-copy ({format:?}): {text}");
-                            self.copied_target = Some(format);
-                            self.copied_at = Some(Instant::now());
-                            tasks.push(clipboard::write(text));
-                        }
-
-                        // Destroy all overlay surfaces.
-                        for oid in &overlays {
-                            tasks.push(destroy_layer_surface(*oid));
-                        }
-
-                        // Reopen the popup.
-                        tasks.push(surface::surface_task(surface::action::app_popup(
-                            |_| LiveSettings::default(),
-                            |app: &mut AppModel| {
-                                let new_id = Id::unique();
-                                app.popup.replace(new_id);
-                                let mut popup_settings = app.core.applet.get_popup_settings(
-                                    app.core.main_window_id().unwrap(),
-                                    new_id,
-                                    None,
-                                    None,
-                                    None,
-                                );
-                                popup_settings.positioner.size_limits = Limits::NONE
-                                    .max_width(372.0)
-                                    .min_width(300.0)
-                                    .min_height(200.0)
-                                    .max_height(1080.0);
-                                popup_settings
-                            },
-                            None,
-                        )));
-
-                        return Task::batch(tasks);
+                    // Automatically copy the picked colour when enabled,
+                    // using the configured default format.
+                    if self.config.copy_on_select {
+                        let format = self.config.default_color_format;
+                        let text = match format {
+                            ColorFormat::Hex => self.hex.clone(),
+                            ColorFormat::Rgb => self.rgb.clone(),
+                            ColorFormat::Hsl => self.hsl.clone(),
+                        };
+                        log::info!("[picker]   auto-copy ({format:?}): {text}");
+                        self.copied_target = Some(format);
+                        self.copied_at = Some(Instant::now());
+                        tasks.push(clipboard::write(text));
                     }
+
+                    // Destroy all overlay surfaces.
+                    for oid in &overlays {
+                        tasks.push(destroy_layer_surface(*oid));
+                    }
+
+                    // Reopen the popup.
+                    tasks.push(surface::surface_task(surface::action::app_popup(
+                        |_| LiveSettings::default(),
+                        |app: &mut AppModel| {
+                            let new_id = Id::unique();
+                            app.popup.replace(new_id);
+                            let mut popup_settings = app.core.applet.get_popup_settings(
+                                app.core.main_window_id().unwrap(),
+                                new_id,
+                                None,
+                                None,
+                                None,
+                            );
+                            popup_settings.positioner.size_limits = Limits::NONE
+                                .max_width(372.0)
+                                .min_width(300.0)
+                                .min_height(200.0)
+                                .max_height(1080.0);
+                            popup_settings
+                        },
+                        None,
+                    )));
+
+                    return Task::batch(tasks);
                 }
                 return Task::none().map(cosmic::Action::App);
             }
@@ -824,13 +780,10 @@ impl cosmic::Application for AppModel {
 
             // ── Picker cancelled (Escape or external close) ────────────
             Message::PickerCancel => {
-                log::info!("[picker] PickerCancel received");
                 return self.cancel_picker();
             }
 
-            Message::OverlayCreated(id) => {
-                log::debug!("[picker] OverlayCreated({id:?}) — overlay surface ready");
-            }
+            Message::OverlayCreated(_) => {}
         }
 
         Task::none()
@@ -1077,9 +1030,6 @@ impl AppModel {
             // progress).  Render a full-screen transparent surface with
             // keyboard support so Escape works immediately.
             if self.pending_overlay_ids.contains(&id) {
-                log::debug!(
-                    "[picker] view_picker_overlay({id:?}) — pre-created, transparent placeholder"
-                );
                 let event_layer = MouseArea::new(
                     container(space::horizontal())
                         .width(Length::Fill)
@@ -1093,7 +1043,6 @@ impl AppModel {
                 })
                 .into();
             }
-            log::debug!("[picker] view_picker_overlay({id:?}) — no picker, rendering placeholder");
             return space::horizontal().width(Length::Fixed(1.0)).into();
         };
 
@@ -1238,9 +1187,8 @@ impl AppModel {
     /// Destroy all overlay surfaces and reopen the popup.
     /// Used when the picker is cancelled or capture fails.
     fn cancel_picker(&mut self) -> Task<cosmic::Action<Message>> {
-        log::info!("[picker] cancel_picker()");
-        log::info!(
-            "[picker]   picker state was {:?}",
+        log::debug!(
+            "[picker] cancel_picker() — picker state was {:?}",
             self.picker.as_ref().map(|p| p.state)
         );
 
