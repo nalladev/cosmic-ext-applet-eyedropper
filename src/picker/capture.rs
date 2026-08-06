@@ -53,8 +53,6 @@ impl CaptureHelper {
     #[must_use]
     #[allow(clippy::missing_panics_doc)]
     pub fn new() -> Self {
-        log::info!("[capture] CaptureHelper::new() — Wayland connection for output discovery");
-
         let wayland_display =
             std::env::var("WAYLAND_DISPLAY").unwrap_or_else(|_| "wayland-1".to_string());
         let socket_path = format!(
@@ -94,11 +92,6 @@ impl CaptureHelper {
         event_queue
             .roundtrip(&mut data)
             .expect("CaptureHelper: initial roundtrip");
-
-        let n_outputs = helper.inner.outputs.lock().unwrap().len();
-        log::info!(
-            "[capture] CaptureHelper initialized — {n_outputs} output(s), spawning dispatch thread"
-        );
 
         // Spawn persistent dispatch thread for output tracking.
         thread::spawn(move || {

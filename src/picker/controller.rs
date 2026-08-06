@@ -100,15 +100,6 @@ impl PickerController {
         image_handles: Vec<cosmic::widget::image::Handle>,
         overlay_ids: Vec<cosmic::iced::window::Id>,
     ) -> Self {
-        let n = captures.len();
-        log::debug!(
-            "[picker] PickerController::new_with_captures({} outputs, {} overlays)",
-            n,
-            overlay_ids.len()
-        );
-        for (i, oid) in overlay_ids.iter().enumerate() {
-            log::debug!("[picker]   overlay[{i}] id={oid:?}");
-        }
         PickerController {
             captures,
             image_handles,
@@ -243,7 +234,10 @@ impl PickerController {
     /// the caller should treat the click as a no-op.
     pub fn on_pointer_click(&mut self, _overlay_id: cosmic::iced::window::Id) -> Option<Color> {
         if self.started_at.elapsed() < Self::CLICK_GUARD {
-            log::debug!("[picker]   click ignored (within {:.0} ms click guard)", Self::CLICK_GUARD.as_millis());
+            log::debug!(
+                "[picker]   click ignored (within {:.0} ms click guard)",
+                Self::CLICK_GUARD.as_millis()
+            );
             return None;
         }
         let hover = self.hover?;

@@ -73,48 +73,49 @@ jobs:
           path: artifacts/
           retention-days: 1
 
-  # Disabled: the canonical Flatpak build happens in pop-os/cosmic-flatpak.
-  # This job only produced a convenience .flatpak bundle for the GitHub
-  # release. Re-enable by uncommenting the block and adding it back to
-  # `needs` and the release uploads below.
-  # build-flatpak:
-  #   name: Build Flatpak
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout
-  #       uses: actions/checkout@v5
-  #       with:
-  #         fetch-depth: 0
-  #
-  #     - name: Install flatpak-builder
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install -y flatpak-builder
-  #
-  #     - name: Add flathub remote
-  #       run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-  #
-  #     - name: Install Flatpak runtime and SDK
-  #       run: |
-  #         sudo flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
-  #           org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
-  #
-  #     - name: Build Flatpak
-  #       run: |
-  #         flatpak-builder --force-clean --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ \
-  #           --install-deps-from=flathub --repo=flatpak-repo build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-  #
-  #     - name: Create Flatpak bundle
-  #       run: |
-  #         flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
-  #           io.github.nalladev.CosmicExtAppletEyedropper
-  #
-  #     - name: Upload Flatpak artifact
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         name: cosmic-ext-applet-eyedropper-flatpak
-  #         path: cosmic-ext-applet-eyedropper.flatpak
-  #         retention-days: 30
+  # Disabled via `if: false`: the canonical Flatpak build happens in
+  # pop-os/cosmic-flatpak. This job only produced a convenience .flatpak
+  # bundle for the GitHub release. Re-enable by removing `if: false` and
+  # adding the job back to the `release` job's `needs` and its uploads below.
+  build-flatpak:
+    if: false
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak-builder
+
+      - name: Add flathub remote
+        run: sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install Flatpak runtime and SDK
+        run: |
+          sudo flatpak install -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --force-clean --ccache --mirror-screenshots-url=https://dl.flathub.org/media/ \
+            --install-deps-from=flathub --repo=flatpak-repo build-dir flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
+
+      - name: Create Flatpak bundle
+        run: |
+          flatpak build-bundle flatpak-repo cosmic-ext-applet-eyedropper.flatpak \
+            io.github.nalladev.CosmicExtAppletEyedropper
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-ext-applet-eyedropper-flatpak
+          path: cosmic-ext-applet-eyedropper.flatpak
+          retention-days: 30
 
   release:
     name: Create Release
@@ -149,3 +150,22 @@ jobs:
           cd artifacts
           find . \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) | xargs sha256sum > SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --clobber --repo ${{ github.repository }}
+      # The manifest tag was bumped by `just release` before tagging, so it is
+      # already in the release commit. Regenerate the cargo sources from the
+      # tag's Cargo.lock in case dependencies changed since the last update.
+      # Runners are ephemeral, so the generator is cloned into the workspace.
+      - name: Update flatpak cargo sources for the new tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          sudo apt-get update
+          sudo apt-get install -y python3-aiohttp python3-tomlkit
+          git clone --quiet --depth 1 https://github.com/flatpak/flatpak-builder-tools.git flatpak-builder-tools
+          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o flatpak/cargo-sources.json Cargo.lock
+          git add flatpak/cargo-sources.json
+          if git diff --cached --quiet; then
+            echo "cargo sources unchanged"
+          else
+            git commit -m "flatpak: regenerate cargo sources for ${{ github.ref_name }}"
+            git push origin HEAD:main
+          fi

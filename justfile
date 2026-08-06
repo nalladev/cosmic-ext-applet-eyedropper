@@ -25,8 +25,13 @@ clean:
 clean-vendor:
     rm -rf .cargo vendor vendor.tar
 
-# `cargo clean` and removes vendored dependencies
+# Clean everything build-related: cargo artifacts, vendored deps, flatpak build
+# dirs + cache, python bytecode. Downside: next build and flatpak-install start
+# cold (recompile / re-download). Don't run while a flatpak build is in progress
+# (it removes the temp manifest and build dir being used).
 clean-dist: clean clean-vendor
+    rm -rf build-dir .flatpak-builder flatpak-repo flatpak/local-build.json
+    rm -rf scripts/__pycache__
 
 # Compiles with debug profile
 build-debug *args:
@@ -63,7 +68,6 @@ install:
     install -Dm0644 resources/app.desktop {{desktop-dst}}
     install -Dm0644 resources/app.metainfo.xml {{appdata-dst}}
     install -Dm0644 resources/icon.svg {{icon-dst}}
-
 
 # Uninstalls installed files
 uninstall:
@@ -102,50 +106,48 @@ vendor-extract:
     rm -rf vendor
     tar pxf vendor.tar
 
-# Regenerate flatpak cargo sources only if Cargo.lock changed
+# Regenerate flatpak cargo sources only if Cargo.lock changed.
+# The generator is cloned into ${TMPDIR:-/tmp} once; /tmp self-cleans on reboot.
 vendor-flatpak:
     #!/usr/bin/env bash
     set -euo pipefail
     OUT="flatpak/cargo-sources.json"
     if [ ! -f "$OUT" ] || [ Cargo.lock -nt "$OUT" ]; then
         echo "Regenerating $OUT ..."
-        python3 flatpak/flatpak-cargo-generator.py -o "$OUT" Cargo.lock
+        CACHE="${TMPDIR:-/tmp}/flatpak-builder-tools"
+        if [ ! -d "$CACHE/.git" ]; then
+            git clone --quiet --depth 1 https://github.com/flatpak/flatpak-builder-tools.git "$CACHE"
+        fi
+        python3 "$CACHE/cargo/flatpak-cargo-generator.py" -o "$OUT" Cargo.lock
     else
         echo "$OUT is up to date"
     fi
 
-# Build flatpak only
-flatpak-build: vendor-flatpak
-    flatpak-builder --user --force-clean build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-
-# Build and install flatpak
-flatpak-build-install: vendor-flatpak
-    flatpak-builder --user --install --force-clean build-dir \
-        flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json
-
-# Uninstall flatpak
-flatpak-uninstall:
-    flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
-
-# Regenerate cargo sources and sync the manifest + sources into a checkout of
-# pop-os/cosmic-flatpak (the canonical Flatpak home for COSMIC applets).
-# Usage: just sync-flatpak /path/to/cosmic-flatpak
-sync-flatpak dir: vendor-flatpak
+# Build and install the local test build from a throwaway copy of the
+# manifest (dir source); the committed manifest keeps its release tag.
+flatpak-install: vendor-flatpak
     #!/usr/bin/env bash
     set -euo pipefail
-    DEST="{{dir}}/app/{{appid}}"
-    if [ ! -d "$DEST" ]; then
-        echo "error: $DEST not found — clone pop-os/cosmic-flatpak first"
-        exit 1
-    fi
-    VERSION="$(awk -F'"' '/^version = /{print $2; exit}' Cargo.toml)"
-    python3 scripts/sync-cosmic-flatpak.py "$DEST" "{{appid}}" "{{repo-url}}" "v$VERSION"
-    cp flatpak/cargo-sources.json "$DEST/cargo-sources.json"
-    echo "Synced to $DEST with tag v$VERSION."
-    echo "Next: cd into the cosmic-flatpak checkout, review with git diff, commit, and open a PR."
+    APP="io.github.nalladev.CosmicExtAppletEyedropper"
+    LOCAL="flatpak/local-build.json"
+    python3 scripts/flatpak-manifest.py to-dir "$LOCAL"
+    trap 'rm -f "$LOCAL"' EXIT
+    flatpak uninstall --user -y "$APP" 2>/dev/null || true # clear any existing applet
+    rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/app/$APP" # clean any stale files
+    flatpak-builder --user --install --force-clean build-dir "$LOCAL"
+    trap - EXIT
+    rm -f "$LOCAL"
+    echo "Installed local test build — add the applet to the panel to test"
+    echo "Replaces if any existing applet (store version or local build)"
 
-# Bump cargo version, create git commit, and create tag with message
+# Remove the local test build.
+flatpak-uninstall:
+    flatpak uninstall --user io.github.nalladev.CosmicExtAppletEyedropper
+    echo "To get the production copy back, reinstall from the COSMIC store."
+
+# Bump the version in Cargo.toml, run cargo check, commit everything staged, and tag.
+# Any changes you staged beforehand (e.g. the AppStream entry via `just release`)
+# are included in the commit automatically.
 # Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
 tag version message='':
     # Normalize version: strip leading 'v' if present
@@ -155,3 +157,16 @@ tag version message='':
     git add Cargo.lock && \
     git commit -m 'release: '"$norm_version" && \
     bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
+
+# Update the AppStream entry and the Flatpak manifest tag, then run `just tag`
+# (the staged changes land in the release commit) and push the new tag, which
+# triggers the GitHub release workflow.
+# Usage: just release 1.2.0 "Release notes here"
+release version message='':
+    # Normalize version: strip leading 'v' if present
+    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
+    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
+    python3 scripts/flatpak-manifest.py to-git "$norm_version" "{{repo-url}}" && \
+    git add resources/app.metainfo.xml flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json && \
+    just tag "{{version}}" "{{message}}" && \
+    git push origin v"$norm_version"

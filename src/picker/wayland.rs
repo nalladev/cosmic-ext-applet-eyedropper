@@ -43,10 +43,7 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
 
 fn helper() -> &'static CaptureHelper {
     static HELPER: OnceLock<CaptureHelper> = OnceLock::new();
-    HELPER.get_or_init(|| {
-        log::info!("[capture] Initialising persistent CaptureHelper singleton...");
-        CaptureHelper::new()
-    })
+    HELPER.get_or_init(CaptureHelper::new)
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +83,6 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
     use ashpd::desktop::screenshot::Screenshot;
 
     let h = helper();
-    let t_start = std::time::Instant::now();
     log::info!("[capture] === Starting Screenshot portal capture ===");
 
     // ── Phase 1: portal call (async D-Bus) ────────────────────────
@@ -103,25 +99,16 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
     let path = uri
         .to_file_path()
         .map_err(|()| anyhow::anyhow!("Cannot convert screenshot URI to file path: {uri}"))?;
-    log::debug!("[capture]   screenshot saved to: {}", path.display());
-
     // ── Phase 2: load, crop, build handles (blocking thread) ──────
     let (tx, rx) = oneshot::channel();
 
     std::thread::spawn(move || {
         let captured_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let t_load = std::time::Instant::now();
             let full_img = image::open(&path)
                 .map_err(|e| anyhow::anyhow!("Failed to open screenshot image: {e}"))?;
             let full_rgba = full_img.to_rgba8();
             let full_width = full_rgba.width();
             let full_height = full_rgba.height();
-            log::debug!(
-                "[capture]   loaded screenshot {}x{} in {:?}",
-                full_width,
-                full_height,
-                t_load.elapsed(),
-            );
 
             // Clean up the temp file the portal left behind.
             if let Err(e) = std::fs::remove_file(&path) {
@@ -130,7 +117,6 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
 
             let wl_outputs = h.outputs();
             let n = wl_outputs.len();
-            log::debug!("[capture]   {n} Wayland output(s) for cropping");
 
             if n == 0 {
                 log::warn!("[capture]   WARNING: no outputs discovered, using whole screenshot");
@@ -197,18 +183,6 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
             let scale_x = f64::from(full_width) / f64::from(total_logical_w);
             let scale_y = f64::from(full_height) / f64::from(total_logical_h);
 
-            log::debug!(
-                "[capture]   desktop logical {}x{} (min {}/{}) screenshot {}x{} → scale {:.3}x{:.3}",
-                total_logical_w,
-                total_logical_h,
-                min_x,
-                min_y,
-                full_width,
-                full_height,
-                scale_x,
-                scale_y,
-            );
-
             let mut results: Vec<CapturedOutput> = Vec::with_capacity(geoms.len());
 
             for g in &geoms {
@@ -231,19 +205,6 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
                     );
                     continue;
                 }
-
-                log::debug!(
-                    "[capture]   crop {}: logical={}x{} @({},{}) → pixel={}x{} @({},{})",
-                    g.name,
-                    g.log_w,
-                    g.log_h,
-                    g.pos_x,
-                    g.pos_y,
-                    crop_w,
-                    crop_h,
-                    crop_x,
-                    crop_y,
-                );
 
                 let cropped: RgbaImage =
                     image::imageops::crop_imm(&full_rgba, crop_x, crop_y, crop_w, crop_h)
@@ -268,10 +229,6 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
                 });
             }
 
-            log::debug!(
-                "[capture]   produced {} per-output CapturedOutput(s)",
-                results.len()
-            );
             Ok(results) as Result<Vec<CapturedOutput>, anyhow::Error>
         }));
 
@@ -293,9 +250,8 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
     let captured = result?;
 
     log::info!(
-        "[capture] === Screenshot capture finished: {} output(s) in {:?} ===",
+        "[capture] === Screenshot capture finished: {} output(s) ===",
         captured.len(),
-        t_start.elapsed(),
     );
 
     Ok(captured)

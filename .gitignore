@@ -5,8 +5,10 @@ debug/
 target/
 vendor/
 vendor.tar
+**/__pycache__/
 .flatpak-builder/
 flatpak-builder-tools/
+flatpak/local-build.json
 build-dir/
 builddir/
 Cargo.toml.patched
