@@ -150,22 +150,3 @@ jobs:
           cd artifacts
           find . \( -name '*.tar.gz' -o -name '*.deb' -o -name '*.rpm' \) | xargs sha256sum > SHA256SUMS
           gh release upload "$TAG" SHA256SUMS --clobber --repo ${{ github.repository }}
-      # The manifest tag was bumped by `just release` before tagging, so it is
-      # already in the release commit. Regenerate the cargo sources from the
-      # tag's Cargo.lock in case dependencies changed since the last update.
-      # Runners are ephemeral, so the generator is cloned into the workspace.
-      - name: Update flatpak cargo sources for the new tag
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          sudo apt-get update
-          sudo apt-get install -y python3-aiohttp python3-tomlkit
-          git clone --quiet --depth 1 https://github.com/flatpak/flatpak-builder-tools.git flatpak-builder-tools
-          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o flatpak/cargo-sources.json Cargo.lock
-          git add flatpak/cargo-sources.json
-          if git diff --cached --quiet; then
-            echo "cargo sources unchanged"
-          else
-            git commit -m "flatpak: regenerate cargo sources for ${{ github.ref_name }}"
-            git push origin HEAD:main
-          fi
