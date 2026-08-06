@@ -68,6 +68,10 @@ pub struct PickerController {
     pub overlay_ids: Vec<cosmic::iced::window::Id>,
     /// Current hover state (set by pointer-motion handler).
     pub hover: Option<HoverInfo>,
+    /// When the picking session started, used to ignore clicks that arrive
+    /// before the user has had a chance to see the picker UI (see
+    /// [`Self::CLICK_GUARD`]).
+    started_at: std::time::Instant,
     /// Current lifecycle state.
     pub state: PickerState,
 }
@@ -80,6 +84,11 @@ pub struct PickerController {
     clippy::cast_possible_wrap
 )]
 impl PickerController {
+    /// Ignore clicks within this window after the session starts, matching
+    /// the approach used by Chromium's eyedropper (500 ms there; 250 ms is
+    /// enough when the picker is launched on demand).
+    const CLICK_GUARD: std::time::Duration = std::time::Duration::from_millis(250);
+
     /// Create a new controller already in [`PickerState::Picking`] with
     /// captures, image handles and overlay IDs all provided at once.
     ///
@@ -105,6 +114,7 @@ impl PickerController {
             image_handles,
             overlay_ids,
             hover: None,
+            started_at: std::time::Instant::now(),
             state: PickerState::Picking,
         }
     }
@@ -226,9 +236,16 @@ impl PickerController {
     /// [`on_pointer_motion`]) to sample the colour.  Returns the selected
     /// colour and transitions to [`PickerState::Completed`].
     ///
-    /// If no hover state is available (e.g. click before any motion),
-    /// returns `None` and the caller should treat the click as a no-op.
+    /// Clicks within [`Self::CLICK_GUARD`] of the session start are ignored
+    /// so the user has time to see the picker UI before selecting (the
+    /// overlay can appear under a cursor that is mid-click).  If no hover
+    /// state is available (e.g. click before any motion), returns `None` and
+    /// the caller should treat the click as a no-op.
     pub fn on_pointer_click(&mut self, _overlay_id: cosmic::iced::window::Id) -> Option<Color> {
+        if self.started_at.elapsed() < Self::CLICK_GUARD {
+            log::debug!("[picker]   click ignored (within {:.0} ms click guard)", Self::CLICK_GUARD.as_millis());
+            return None;
+        }
         let hover = self.hover?;
         let color = self.sample_at(hover.global_pos.0, hover.global_pos.1)?;
         self.state = PickerState::Completed(color);

@@ -755,10 +755,11 @@ impl cosmic::Application for AppModel {
                 let d = self.magnifier.pending_zoom_delta;
                 if d != 0.0 {
                     self.magnifier.pending_zoom_delta = 0.0;
+                    // Wheel-up (positive y) zooms in; wheel-down zooms out (see #13).
                     // Snap to whole-number cell sizes so the lens texture stays
                     // at exact 1:1 resolution (see MagnifierMask in
                     // widget/magnifier.rs).
-                    self.magnifier.zoom_level = (self.magnifier.zoom_level - d * 0.75)
+                    self.magnifier.zoom_level = (self.magnifier.zoom_level + d * 0.75)
                         .round()
                         .clamp(MIN_ZOOM, MAX_ZOOM);
                 }
