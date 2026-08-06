@@ -159,8 +159,9 @@ tag version message='':
     bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
 
 # Update the AppStream entry and the Flatpak manifest tag, then run `just tag`
-# (the staged changes land in the release commit) and push the new tag, which
-# triggers the GitHub release workflow.
+# (the staged changes land in the release commit), push main so the release
+# commit is on the remote, then push the new tag, which triggers the GitHub
+# release workflow.
 # Usage: just release 1.2.0 "Release notes here"
 release version message='':
     # Normalize version: strip leading 'v' if present
@@ -169,4 +170,5 @@ release version message='':
     python3 scripts/flatpak-manifest.py to-git "$norm_version" "{{repo-url}}" && \
     git add resources/app.metainfo.xml flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json && \
     just tag "{{version}}" "{{message}}" && \
+    git push origin main && \
     git push origin v"$norm_version"
