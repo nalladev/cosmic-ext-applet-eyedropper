@@ -7,14 +7,14 @@
 //! circle geometry depends only on the cell size, so it is computed once and
 //! then looked up — the GPU work is one textured quad per frame instead of
 //! one draw call per cell.  [`MagnifierProgram`] draws the overlay strokes
-//! (crosshair, centre highlight, border) on top of the texture.
+//! (grid, centre ring, border) on top of the texture.
 
 use std::sync::LazyLock;
 
 use cosmic::iced::mouse;
 use cosmic::iced::widget::canvas::{self, Path, Stroke};
 
-/// Number of cells per side of the lens grid (odd, for a centred crosshair).
+/// Number of cells per side of the lens grid (odd, for a centred cell).
 pub const GRID_SIZE: usize = 17;
 
 /// Minimum zoom level (cell size in logical pixels).
@@ -155,14 +155,13 @@ pub fn lens_rgba(mask: &MagnifierMask, buf: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
-// Overlay canvas — crosshair, centre highlight and border
+// Overlay canvas — grid, centre ring and border
 // ---------------------------------------------------------------------------
 
 /// Draws the lens overlay strokes above the cell texture.
 ///
 /// The cells themselves are a single image widget (see [`lens_rgba`]); this
-/// canvas only adds the crosshair, the centre-cell highlight and the outer
-/// border.
+/// canvas only adds the grid, the centre-cell ring and the outer border.
 pub struct MagnifierProgram {
     /// Number of cells per side (odd, e.g. 17).
     pub grid_size: usize,
@@ -190,21 +189,46 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
         let radius = self.grid_size as f32 * cell / 2.0;
         let centre = cosmic::iced::Point::new(radius, radius);
 
-        // Crosshair (2 cells wide — stays well inside the circle).
-        let cross_extent = cell * 2.0;
-        let h_line = Path::line(
-            cosmic::iced::Point::new(centre.x - cross_extent, centre.y),
-            cosmic::iced::Point::new(centre.x + cross_extent, centre.y),
-        );
-        let v_line = Path::line(
-            cosmic::iced::Point::new(centre.x, centre.y - cross_extent),
-            cosmic::iced::Point::new(centre.x, centre.y + cross_extent),
-        );
-        let crosshair_style = Stroke::default().with_color(fg).with_width(1.5);
-        frame.stroke(&h_line, crosshair_style);
-        frame.stroke(&v_line, crosshair_style);
+        // Subtle grid: one stroke per internal cell boundary, drawn once. A
+        // box per cell would double every line (adjacent cells share it). The
+        // frame clip is rectangle-only, so each line is clipped to the circle
+        // by computing its chord half-length from the distance to the centre.
+        let grid_color = cosmic::iced::Color {
+            r: fg.r,
+            g: fg.g,
+            b: fg.b,
+            a: 0.2,
+        };
+        let grid_style = Stroke::default().with_color(grid_color).with_width(1.0);
+        let radius_sq = radius * radius;
+        for i in 1..self.grid_size {
+            let x = i as f32 * cell;
+            let dx = x - centre.x;
+            if dx * dx <= radius_sq {
+                let half = (radius_sq - dx * dx).sqrt();
+                frame.stroke(
+                    &Path::line(
+                        cosmic::iced::Point::new(x, centre.y - half),
+                        cosmic::iced::Point::new(x, centre.y + half),
+                    ),
+                    grid_style,
+                );
+            }
+            let y = i as f32 * cell;
+            let dy = y - centre.y;
+            if dy * dy <= radius_sq {
+                let half = (radius_sq - dy * dy).sqrt();
+                frame.stroke(
+                    &Path::line(
+                        cosmic::iced::Point::new(centre.x - half, y),
+                        cosmic::iced::Point::new(centre.x + half, y),
+                    ),
+                    grid_style,
+                );
+            }
+        }
 
-        // Centre-cell highlight (bright border).
+        // Centre-cell ring (replaces the old crosshair).
         let half = self.grid_size / 2;
         let centre_rect = Path::rectangle(
             cosmic::iced::Point::new(half as f32 * cell, half as f32 * cell),
@@ -212,7 +236,9 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
         );
         frame.stroke(
             &centre_rect,
-            Stroke::default().with_color(fg).with_width(2.0),
+            Stroke::default()
+                .with_color(cosmic::iced::Color::from_rgb(1.0, 0.0, 0.0))
+                .with_width(2.0),
         );
 
         // Outer circular border.
