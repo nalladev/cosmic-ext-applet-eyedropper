@@ -479,7 +479,7 @@ impl cosmic::Application for AppModel {
                 let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
                 let mut overlay_ids = Vec::new();
 
-                for output_state in self.outputs.iter() {
+                for output_state in &self.outputs {
                     let overlay_id = output_state.id;
                     overlay_ids.push(overlay_id);
                     tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
