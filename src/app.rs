@@ -629,15 +629,10 @@ impl cosmic::Application for AppModel {
             Message::PointerMoved(id, x, y) => {
                 // Clone hover info to release the mutable borrow on
                 // self.picker before populating the magnifier buffer.
-                //
-                // Reduce the sample sensitivity while zoomed in so small
-                // cursor movements map to finer pixel steps; restored to
-                // 1:1 at base zoom (8.0).
-                let sensitivity = (8.0 / self.magnifier.zoom_level).clamp(0.0, 1.0);
                 let hover = self
                     .picker
                     .as_mut()
-                    .and_then(|p| p.on_pointer_motion(id, x, y, sensitivity));
+                    .and_then(|p| p.on_pointer_motion(id, x, y));
 
                 if let Some(hover) = hover {
                     const GRID: usize = 17;

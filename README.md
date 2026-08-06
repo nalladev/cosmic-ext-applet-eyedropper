@@ -13,7 +13,7 @@ An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick
 - **Multiple formats** — copy the picked colour as hex (`#ff0000`), RGB (`rgb(255, 0, 0)`), or HSL (`hsl(0, 100%, 50%)`)
 - **Auto-copy on select** — optional setting that copies the picked colour to the clipboard the moment you click, using a configurable default format (hex, RGB, or HSL)
 - **Popup with colour history** — the panel popup shows your last selection with quick-copy buttons
-- **Natural wheel zoom** — wheel forward zooms in, wheel backward zooms out, and pointer sensitivity is gently reduced while zoomed in for precise selection
+- **Natural wheel zoom** — wheel forward zooms in, wheel backward zooms out
 - **Keyboard-shortcut friendly** — `cosmic-ext-applet-eyedropper --pick` starts colour-picker mode immediately; if the applet is already running, the request is forwarded to it over D-Bus, so you can bind the command to a shortcut and pick a colour in one step
 
 ## Installation
