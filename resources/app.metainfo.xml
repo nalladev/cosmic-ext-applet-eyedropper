@@ -15,14 +15,27 @@
     <p>
       Pick colors from anywhere on your screen with the COSMIC Eyedropper applet.
       Click the eyedropper icon in the panel, then click on any pixel to capture
-      its color. The selected color can be copied in multiple formats including
-      HEX, RGB, and HSL.
+      its color.
     </p>
+    <ul>
+      <li>Magnifier lens with 8×–24× zoom follows your cursor for pixel-accurate picking</li>
+      <li>Copy colors as HEX, RGB, or HSL</li>
+      <li>Optional auto-copy to clipboard on selection</li>
+      <li>Color history in the panel popup</li>
+      <li>Start picking in one step from a keyboard shortcut</li>
+    </ul>
     <p xml:lang="cs">
       Vybírejte barvy z libovolného místa na obrazovce pomocí COSMIC appletu Kapátko.
       Klikněte na ikonu kapátka v panelu a poté na libovolný pixel, jehož barvu chcete
-      zachytit. Vybranou barvu lze zkopírovat v několika formátech včetně HEX, RGB a HSL.
+      zachytit.
     </p>
+    <ul xml:lang="cs">
+      <li>Lupa s přiblížením 8×–24× sleduje kurzor pro přesný výběr pixelů</li>
+      <li>Kopírujte barvy jako HEX, RGB nebo HSL</li>
+      <li>Volitelné automatické kopírování do schránky po výběru</li>
+      <li>Historie barev v rozbalovacím okně panelu</li>
+      <li>Spuštění výběru jedním krokem pomocí klávesové zkratky</li>
+    </ul>
   </description>
   <icon type="stock">io.github.nalladev.CosmicExtAppletEyedropper-symbolic</icon>
   <url type="homepage">https://github.com/nalladev/cosmic-ext-applet-eyedropper</url>
