@@ -78,4 +78,12 @@
     <keyword xml:lang="cs">výběr barev</keyword>
   </keywords>
   <content_rating type="oars-1.1" />
+<releases>
+  <release version="0.6.0" date="2026-08-06">
+    <description>
+      <p>- Zoomable magnifier (8×–24×) with a Chromium-style pixel grid and red centre-cell highlight - Smooth, sharp lens rendered on the GPU as a single texture with precomputed masks - Natural scroll zoom: mouse wheel steps one zoom level per notch, touchpad scrolls smoothly - --pick flag: start colour-picking from a keyboard shortcut, forwarded to the running applet - Auto-copy picked colours with a configurable default format (hex, RGB, or HSL) - Reworked Flatpak tooling: one-command local test builds</p>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.0</url>
+  </release>
+</releases>
 </component>
