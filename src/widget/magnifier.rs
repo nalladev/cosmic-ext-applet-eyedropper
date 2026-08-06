@@ -236,7 +236,9 @@ impl<Message> canvas::Program<Message, cosmic::Theme> for MagnifierProgram {
         );
         frame.stroke(
             &centre_rect,
-            Stroke::default().with_color(fg).with_width(2.0),
+            Stroke::default()
+                .with_color(cosmic::iced::Color::from_rgb(1.0, 0.0, 0.0))
+                .with_width(2.0),
         );
 
         // Outer circular border.
