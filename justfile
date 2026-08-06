@@ -128,14 +128,17 @@ vendor-flatpak:
 flatpak-install: vendor-flatpak
     #!/usr/bin/env bash
     set -euo pipefail
+    APP="io.github.nalladev.CosmicExtAppletEyedropper"
     LOCAL="flatpak/local-build.json"
     python3 scripts/flatpak-manifest.py to-dir "$LOCAL"
     trap 'rm -f "$LOCAL"' EXIT
+    flatpak uninstall --user -y "$APP" 2>/dev/null || true # clear any existing applet
+    rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/flatpak/app/$APP" # clean any stale files
     flatpak-builder --user --install --force-clean build-dir "$LOCAL"
     trap - EXIT
     rm -f "$LOCAL"
     echo "Installed local test build — add the applet to the panel to test"
-    echo "Replaced any existing applet (store version or local build)"
+    echo "Replaces if any existing applet (store version or local build)"
 
 # Remove the local test build.
 flatpak-uninstall:
