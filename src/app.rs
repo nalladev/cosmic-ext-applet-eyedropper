@@ -146,9 +146,10 @@ pub struct AppModel {
 
     // ── Pre-created overlay tracking ───────────────────────────────────
     /// Overlay window IDs that have been pre-created (transparent) but
-    /// are not yet showing the frozen image.  Populated by `start_capture`
-    /// before the portal capture starts; taken by `CaptureCompleted` once
-    /// the frozen image is ready, or drained on cancel/failure.
+    /// are not yet showing the frozen image.  Populated by
+    /// `precreate_overlays` before the portal capture starts; taken by
+    /// `CaptureCompleted` once the frozen image is ready, or drained on
+    /// cancel/failure.
     pending_overlay_ids: Vec<window::Id>,
     /// A colour was picked on press but the overlays stay up until the
     /// release lands (`Message::PointerReleased`), which tears them down
@@ -156,6 +157,12 @@ pub struct AppModel {
     /// event itself avoids the release of the picking click dismissing a
     /// freshly-mapped popup (the old delayed-reopen workaround).
     awaiting_release: bool,
+    /// A capture was requested while the popup was open: the popup was
+    /// destroyed and the portal capture is deferred until `PopupClosed`
+    /// confirms it is gone, so the menu can never appear inside the frozen
+    /// screen.  The overlay surfaces are pre-created in parallel — only
+    /// the capture waits.
+    start_after_popup_close: bool,
 
     // ── Clipboard feedback ───────────────────────────────────────────
     /// Which format was last copied (if any).
@@ -281,6 +288,7 @@ impl cosmic::Application for AppModel {
             picker: None,
             pending_overlay_ids: Vec::new(),
             awaiting_release: false,
+            start_after_popup_close: false,
             copied_target: None,
             copied_at: None,
             magnifier: MagnifierState::new(),
@@ -297,6 +305,12 @@ impl cosmic::Application for AppModel {
             .is_some_and(|p| p.overlay_ids.contains(&id))
         {
             return Some(Message::PickerCancel);
+        }
+        // A capture was requested while the popup was open: the popup id
+        // was already taken by `request_capture`, but this close event is
+        // still for it.
+        if self.start_after_popup_close {
+            return Some(Message::PopupClosed(id));
         }
         // Otherwise it's the popup.
         if self.popup == Some(id) {
@@ -361,9 +375,15 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::TogglePopup => {
-                // Ignore while in picker mode or while the overlays are
-                // being pre-created.
-                if self.picker.is_some() || !self.pending_overlay_ids.is_empty() {
+                // Ignore while in picker mode or while entering it: between
+                // the "Select Colour" press and the moment the overlays are
+                // up, the release of the launch click can land on the panel
+                // icon. Toggling the popup then would reopen the menu
+                // during the capture.
+                if self.picker.is_some()
+                    || self.start_after_popup_close
+                    || !self.pending_overlay_ids.is_empty()
+                {
                     return Task::none();
                 }
                 return if let Some(p) = self.popup.take() {
@@ -395,6 +415,20 @@ impl cosmic::Application for AppModel {
 
             // ── Popup was closed ────────────────────────────────────────
             Message::PopupClosed(id) => {
+                // A capture was requested while the popup was open:
+                // `request_capture` already took the popup, so `self.popup`
+                // won't match here.  The close is confirmed — start the
+                // capture now (the overlays were pre-created already), so
+                // the menu can't appear in the frozen frame.
+                if self.start_after_popup_close {
+                    self.start_after_popup_close = false;
+                    self.popup = None;
+                    self.copied_target = None;
+                    self.copied_at = None;
+                    log::debug!("[picker]   popup closed — starting capture");
+                    return Self::begin_portal_capture();
+                }
+
                 // Normal popup lifecycle (user closed it manually).
                 if self.popup.as_ref() == Some(&id) {
                     self.popup = None;
@@ -431,13 +465,13 @@ impl cosmic::Application for AppModel {
             }
 
             Message::EyedropperClicked => {
-                log::info!("[picker] EyedropperClicked — starting Screenshot portal capture");
-                return self.start_capture();
+                log::info!("[picker] EyedropperClicked — closing popup first, then capture");
+                return self.request_capture();
             }
 
             Message::DbusPick => {
                 log::info!("[picker] DbusPick — pick requested via D-Bus activation");
-                return self.start_capture();
+                return self.request_capture();
             }
 
             Message::CaptureCompleted(captures) => {
@@ -594,7 +628,7 @@ impl cosmic::Application for AppModel {
                 // output list, which is only populated by these events.
                 if self.pending_start && !self.outputs.is_empty() && self.picker.is_none() {
                     self.pending_start = false;
-                    return self.start_capture();
+                    return self.request_capture();
                 }
             }
 
@@ -829,15 +863,28 @@ impl AppModel {
         self.hsl = color.hsl();
     }
 
-    /// Begin a screen capture and enter picker mode once it completes.
+    /// Enter picker mode, closing the popup first if one is open.
     ///
-    /// Shared by the applet button, the `--pick` command-line option, and
-    /// D-Bus activation.  Ignores the request if a picker session is
-    /// already active.
-    fn start_capture(&mut self) -> Task<cosmic::Action<Message>> {
+    /// If the popup is open, it is destroyed and only the portal capture
+    /// is deferred until `PopupClosed` confirms it is gone — otherwise the
+    /// still-open menu would be captured inside the frozen frame.  The
+    /// overlay surfaces are pre-created immediately, in parallel with the
+    /// popup close, so the freeze is flicker-free.  If no popup is open,
+    /// the capture starts immediately.
+    ///
+    /// Shared by the applet button and D-Bus activation (`--pick`).  Ignores
+    /// the request if a picker session is already active.
+    fn request_capture(&mut self) -> Task<cosmic::Action<Message>> {
         // Ignore if already picking.
         if self.picker.is_some() {
             log::warn!("[picker]   WARNING: ignored — picker already active");
+            return Task::none();
+        }
+
+        // A start is already pending (popup closing, or overlays
+        // pre-created but the capture hasn't completed) — e.g. a keyboard
+        // activation racing the mouse press.
+        if self.start_after_popup_close || !self.pending_overlay_ids.is_empty() {
             return Task::none();
         }
 
@@ -849,12 +896,31 @@ impl AppModel {
         self.magnifier.reset();
 
         // Pre-create transparent fullscreen overlay surfaces on every output
-        // BEFORE starting the capture.  The overlays map over the (still
-        // live) desktop now; when the capture lands, `CaptureCompleted`
-        // populates them with the frozen image.  Creating and mapping the
-        // surfaces only after the capture completed is what made the whole
-        // screen flash when running as a panel applet — a brand-new Overlay
-        // layer mapped over the live Panel layer mid-session.
+        // NOW, in parallel with the popup close.  The overlays map over the
+        // (still live) desktop invisibly; when the capture lands,
+        // `CaptureCompleted` populates them with the frozen image.  Creating
+        // and mapping the surfaces only after the capture completed is what
+        // made the whole screen flash when running as a panel applet — a
+        // brand-new Overlay layer mapped over the live Panel layer mid-session.
+        let mut tasks = self.precreate_overlays();
+
+        // Close an open popup first; `PopupClosed` starts the capture.
+        if let Some(popup_id) = self.popup.take() {
+            self.start_after_popup_close = true;
+            log::info!("[picker]   closing popup — capture starts after PopupClosed");
+            tasks.push(surface::surface_task(surface::action::destroy_popup(
+                popup_id,
+            )));
+            return Task::batch(tasks);
+        }
+
+        tasks.push(Self::begin_portal_capture());
+        Task::batch(tasks)
+    }
+
+    /// Pre-create transparent fullscreen overlay surfaces on every output
+    /// and record their IDs in `pending_overlay_ids`.
+    fn precreate_overlays(&mut self) -> Vec<Task<cosmic::Action<Message>>> {
         let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
         let mut overlay_ids = Vec::new();
         for output_state in &self.outputs {
@@ -878,27 +944,21 @@ impl AppModel {
             "[picker]   pre-created {} overlay surface(s)",
             self.pending_overlay_ids.len()
         );
+        tasks
+    }
 
-        // Start capture in background.
-        tasks.push(
-            Task::perform(
-                picker::capture_outputs(),
-                |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
-                    Ok(captures) => Message::CaptureCompleted(captures),
-                    Err(e) => Message::CaptureFailed(e.to_string()),
-                },
-            )
-            .map(cosmic::Action::App),
-        );
-
-        // Close popup if open.
-        if let Some(popup_id) = self.popup.take() {
-            tasks.push(surface::surface_task(surface::action::destroy_popup(
-                popup_id,
-            )));
-        }
-
-        Task::batch(tasks)
+    /// Request the portal screenshot in the background.  The overlay
+    /// surfaces must already be pre-created (`precreate_overlays`) and any
+    /// open popup must already be confirmed closed (`Message::PopupClosed`).
+    fn begin_portal_capture() -> Task<cosmic::Action<Message>> {
+        Task::perform(
+            picker::capture_outputs(),
+            |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
+                Ok(captures) => Message::CaptureCompleted(captures),
+                Err(e) => Message::CaptureFailed(e.to_string()),
+            },
+        )
+        .map(cosmic::Action::App)
     }
 
     /// Keep the segmented-control selection in sync with the configured
@@ -1244,6 +1304,9 @@ impl AppModel {
 
         // A stray release after cancel must not open the popup.
         self.awaiting_release = false;
+        // A deferred capture (popup closing) is cancelled with it; the
+        // popup-close confirmation must not start a fresh capture.
+        self.start_after_popup_close = false;
 
         // One-shot CLI mode (--pick): the picker session has ended — exit
         // instead of reopening the popup.
