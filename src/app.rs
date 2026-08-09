@@ -710,7 +710,7 @@ impl cosmic::Application for AppModel {
                 for oid in &picker.overlay_ids {
                     tasks.push(destroy_layer_surface(*oid));
                 }
-                tasks.push(self.open_popup());
+                tasks.push(Self::open_popup());
                 return Task::batch(tasks);
             }
 
@@ -1270,7 +1270,7 @@ impl AppModel {
         // Always reopen – even when picker was None (e.g. Escape pressed
         // before capture completed) – to avoid leaving the user without UI.
         if self.popup.is_none() {
-            tasks.push(self.open_popup());
+            tasks.push(Self::open_popup());
         }
 
         if tasks.is_empty() {
@@ -1282,7 +1282,7 @@ impl AppModel {
 
     /// Build the task that opens the applet popup (showing the picked
     /// colour).  Used after picking, and when the picker is cancelled.
-    fn open_popup(&self) -> Task<cosmic::Action<Message>> {
+    fn open_popup() -> Task<cosmic::Action<Message>> {
         surface::surface_task(surface::action::app_popup(
             |_| LiveSettings::default(),
             |app: &mut AppModel| {
