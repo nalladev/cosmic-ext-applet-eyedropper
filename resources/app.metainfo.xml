@@ -79,6 +79,15 @@
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
+  <release version="0.6.1" date="2026-08-09">
+    <description>
+      <ul>
+        <li>Fix panel flicker when entering colour-pick mode</li>
+        <li>Screen capture now starts only after the popup has closed, so the frozen frame matches the moment you clicked</li>
+      </ul>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.1</url>
+  </release>
   <release version="0.6.0" date="2026-08-06">
     <description>
       <ul>
