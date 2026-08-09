@@ -156,6 +156,11 @@ pub struct AppModel {
     /// event itself avoids the release of the picking click dismissing a
     /// freshly-mapped popup (the old delayed-reopen workaround).
     awaiting_release: bool,
+    /// The "Select Colour" button was pressed while the popup was open.
+    /// The capture is deferred until the popup reports itself closed
+    /// (`Message::PopupClosed`), so the menu can never appear inside the
+    /// frozen screen.
+    start_after_popup_close: bool,
 
     // ── Clipboard feedback ───────────────────────────────────────────
     /// Which format was last copied (if any).
@@ -183,7 +188,8 @@ pub enum Message {
     SetDefaultFormat(segmented_button::Entity),
 
     // ── Capture flow ────────────────────────────────────────────────
-    /// The eyedropper button was clicked in the popup.
+    /// The eyedropper button was pressed in the popup (fires on
+    /// press-down, not release, so the freeze starts immediately).
     EyedropperClicked,
     /// A `pick` request arrived via D-Bus activation (`--pick` forwarded
     /// from a second invocation of the applet).
@@ -281,6 +287,7 @@ impl cosmic::Application for AppModel {
             picker: None,
             pending_overlay_ids: Vec::new(),
             awaiting_release: false,
+            start_after_popup_close: false,
             copied_target: None,
             copied_at: None,
             magnifier: MagnifierState::new(),
@@ -297,6 +304,11 @@ impl cosmic::Application for AppModel {
             .is_some_and(|p| p.overlay_ids.contains(&id))
         {
             return Some(Message::PickerCancel);
+        }
+        // The "Select Colour" button was pressed: the popup id was already
+        // taken by `request_capture`, but this close event is still for it.
+        if self.start_after_popup_close {
+            return Some(Message::PopupClosed(id));
         }
         // Otherwise it's the popup.
         if self.popup == Some(id) {
@@ -361,9 +373,15 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::TogglePopup => {
-                // Ignore while in picker mode or while the overlays are
-                // being pre-created.
-                if self.picker.is_some() || !self.pending_overlay_ids.is_empty() {
+                // Ignore while in picker mode or while entering it: between
+                // the "Select Colour" press and the moment the overlays are
+                // up, the release of the launch click can land on the panel
+                // icon.  Toggling the popup then would reopen the menu
+                // during the capture.
+                if self.picker.is_some()
+                    || self.start_after_popup_close
+                    || !self.pending_overlay_ids.is_empty()
+                {
                     return Task::none();
                 }
                 return if let Some(p) = self.popup.take() {
@@ -395,12 +413,25 @@ impl cosmic::Application for AppModel {
 
             // ── Popup was closed ────────────────────────────────────────
             Message::PopupClosed(id) => {
-                // Normal popup lifecycle (user closed it manually).
+                // The "Select Colour" button was pressed: `request_capture`
+                // already took the popup, so `self.popup` won't match here.
+                // The close is confirmed — start the capture so the menu
+                // can't appear in the frozen frame.
+                if self.start_after_popup_close {
+                    self.start_after_popup_close = false;
+                    self.popup = None;
+                    self.copied_target = None;
+                    self.copied_at = None;
+                    log::debug!("[picker]   popup closed — starting capture");
+                    return self.start_capture();
+                }
+
                 if self.popup.as_ref() == Some(&id) {
                     self.popup = None;
                     self.copied_target = None;
                     self.copied_at = None;
 
+                    // Normal popup lifecycle (user closed it manually).
                     log::info!("[picker]   normal popup close — no capture.");
                     // One-shot CLI mode: the picker session is finished once
                     // the result popup is dismissed.
@@ -431,13 +462,13 @@ impl cosmic::Application for AppModel {
             }
 
             Message::EyedropperClicked => {
-                log::info!("[picker] EyedropperClicked — starting Screenshot portal capture");
-                return self.start_capture();
+                log::info!("[picker] EyedropperClicked — closing popup first, then capture");
+                return self.request_capture();
             }
 
             Message::DbusPick => {
                 log::info!("[picker] DbusPick — pick requested via D-Bus activation");
-                return self.start_capture();
+                return self.request_capture();
             }
 
             Message::CaptureCompleted(captures) => {
@@ -594,7 +625,7 @@ impl cosmic::Application for AppModel {
                 // output list, which is only populated by these events.
                 if self.pending_start && !self.outputs.is_empty() && self.picker.is_none() {
                     self.pending_start = false;
-                    return self.start_capture();
+                    return self.request_capture();
                 }
             }
 
@@ -829,17 +860,52 @@ impl AppModel {
         self.hsl = color.hsl();
     }
 
+    /// Enter picker mode, closing the popup first if one is open.
+    ///
+    /// If the popup is open, it is destroyed and the capture itself is
+    /// deferred until `PopupClosed` confirms it is gone — otherwise the
+    /// still-open menu would be captured inside the frozen frame.  If no
+    /// popup is open, the capture starts immediately.
+    fn request_capture(&mut self) -> Task<cosmic::Action<Message>> {
+        // Ignore if already picking.
+        if self.picker.is_some() {
+            log::warn!("[picker]   WARNING: ignored — picker already active");
+            return Task::none();
+        }
+
+        // A start is already pending (popup closing, or overlays
+        // pre-created but the capture hasn't completed) — e.g. a keyboard
+        // activation racing the mouse press.
+        if self.start_after_popup_close || !self.pending_overlay_ids.is_empty() {
+            return Task::none();
+        }
+
+        // Close an open popup first; `PopupClosed` starts the capture.
+        if let Some(popup_id) = self.popup.take() {
+            self.start_after_popup_close = true;
+            log::info!("[picker]   closing popup — capture starts after PopupClosed");
+            return surface::surface_task(surface::action::destroy_popup(popup_id));
+        }
+
+        self.start_capture()
+    }
+
     /// Begin a screen capture and enter picker mode once it completes.
     ///
-    /// Shared by the applet button, the `--pick` command-line option, and
-    /// D-Bus activation.  Ignores the request if a picker session is
-    /// already active.
+    /// Called from `request_capture` once the popup is confirmed closed
+    /// (or when no popup was open), from the `--pick` command-line option,
+    /// and from D-Bus activation.  Ignores the request if a picker session
+    /// is already active.
     fn start_capture(&mut self) -> Task<cosmic::Action<Message>> {
         // Ignore if already picking.
         if self.picker.is_some() {
             log::warn!("[picker]   WARNING: ignored — picker already active");
             return Task::none();
         }
+
+        // No deferred start pending — everything goes through
+        // `request_capture`, which clears this before calling us.
+        self.start_after_popup_close = false;
 
         self.error = None;
         self.sampled = None;
@@ -967,6 +1033,7 @@ impl AppModel {
             space_xxs,
             space_xs,
             space_s,
+            space_l,
             ..
         } = theme::active().cosmic().spacing;
         let corner_radii = theme::active().cosmic().corner_radii;
@@ -1012,8 +1079,22 @@ impl AppModel {
         };
 
         // "Select Colour" button (primary action).
-        let select_button =
-            button::suggested(fl!("select-colour")).on_press(Message::EyedropperClicked);
+        // `button::suggested`'s `on_press` fires on mouse *release*, so build
+        // the same suggested look with `button::custom` and use
+        // `on_press_down` to start the picker on press — the freeze then
+        // matches the press moment.  `on_press` stays for keyboard (Enter)
+        // activation; `request_capture` dedupes the duplicate (press +
+        // release) messages.
+        let select_button = button::custom(
+            row![text::body(fl!("select-colour"))]
+                .padding([0, space_s])
+                .height(Length::Fixed(f32::from(space_l)))
+                .align_y(Alignment::Center),
+        )
+        .padding(0)
+        .class(button::ButtonClass::Suggested)
+        .on_press_down(Message::EyedropperClicked)
+        .on_press(Message::EyedropperClicked);
 
         let heading = row![swatch, centre, select_button,]
             .spacing(f32::from(space_xs))
