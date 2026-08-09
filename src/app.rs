@@ -146,9 +146,16 @@ pub struct AppModel {
 
     // ── Pre-created overlay tracking ───────────────────────────────────
     /// Overlay window IDs that have been pre-created (transparent) but
-    /// are not yet showing the frozen image.  Populated when entering
-    /// picker mode; cleared by `OverlayCreated` or on cancel.
+    /// are not yet showing the frozen image.  Populated by `start_capture`
+    /// before the portal capture starts; taken by `CaptureCompleted` once
+    /// the frozen image is ready, or drained on cancel/failure.
     pending_overlay_ids: Vec<window::Id>,
+    /// A colour was picked on press but the overlays stay up until the
+    /// release lands (`Message::PointerReleased`), which tears them down
+    /// and opens the result popup.  Opening the popup from the release
+    /// event itself avoids the release of the picking click dismissing a
+    /// freshly-mapped popup (the old delayed-reopen workaround).
+    awaiting_release: bool,
 
     // ── Clipboard feedback ───────────────────────────────────────────
     /// Which format was last copied (if any).
@@ -185,7 +192,6 @@ pub enum Message {
     CaptureCompleted(Vec<CapturedOutput>),
     /// The screenshot capture failed with an error message.
     CaptureFailed(String),
-
     // ── Wayland output tracking ─────────────────────────────────────
     OutputEvent(Box<OutputEvent>, WlOutput),
 
@@ -194,8 +200,11 @@ pub enum Message {
     PickerCancel,
     /// Pointer moved on a picker overlay window.
     PointerMoved(Id, f32, f32),
-    /// Pointer clicked on a picker overlay window.
+    /// Pointer pressed on a picker overlay window (samples the colour).
     PointerClicked(Id),
+    /// Pointer released on a picker overlay window (ends the session and
+    /// opens the result popup).
+    PointerReleased(Id),
 
     // ── Magnifier zoom ────────────────────────────────────────────────
     /// Scroll-delta from a mouse wheel or touchpad two-finger scroll.
@@ -271,6 +280,7 @@ impl cosmic::Application for AppModel {
             outputs: Vec::new(),
             picker: None,
             pending_overlay_ids: Vec::new(),
+            awaiting_release: false,
             copied_target: None,
             copied_at: None,
             magnifier: MagnifierState::new(),
@@ -351,8 +361,9 @@ impl cosmic::Application for AppModel {
     fn update(&mut self, message: Self::Message) -> Task<cosmic::Action<Self::Message>> {
         match message {
             Message::TogglePopup => {
-                // Ignore while in picker mode.
-                if self.picker.is_some() {
+                // Ignore while in picker mode or while the overlays are
+                // being pre-created.
+                if self.picker.is_some() || !self.pending_overlay_ids.is_empty() {
                     return Task::none();
                 }
                 return if let Some(p) = self.popup.take() {
@@ -389,6 +400,7 @@ impl cosmic::Application for AppModel {
                     self.popup = None;
                     self.copied_target = None;
                     self.copied_at = None;
+
                     log::info!("[picker]   normal popup close — no capture.");
                     // One-shot CLI mode: the picker session is finished once
                     // the result popup is dismissed.
@@ -631,7 +643,12 @@ impl cosmic::Application for AppModel {
                 }
             }
 
-            // ── Pointer clicked on a picker overlay ───────────────────
+            // ── Pointer pressed on a picker overlay ───────────────────
+            // Press samples the colour and records everything, but leaves
+            // the overlays up.  They are torn down and the result popup is
+            // opened when the release lands (`Message::PointerReleased`) —
+            // a freshly-mapped popup would otherwise be dismissed by the
+            // release of this very click.
             Message::PointerClicked(id) => {
                 log::debug!("[picker] PointerClicked({id:?})");
                 if let Some(picker) = self.picker.as_mut()
@@ -643,9 +660,6 @@ impl cosmic::Application for AppModel {
                         color.rgb(),
                         color.hsl()
                     );
-                    // Colour selected — exit picker mode.
-                    let overlays = picker.overlay_ids.clone();
-                    self.picker.take();
 
                     self.sampled = Some(color);
                     self.update_color_strings(color);
@@ -667,37 +681,37 @@ impl cosmic::Application for AppModel {
                         tasks.push(clipboard::write(text));
                     }
 
-                    // Destroy all overlay surfaces.
-                    for oid in &overlays {
-                        tasks.push(destroy_layer_surface(*oid));
-                    }
-
-                    // Reopen the popup.
-                    tasks.push(surface::surface_task(surface::action::app_popup(
-                        |_| LiveSettings::default(),
-                        |app: &mut AppModel| {
-                            let new_id = Id::unique();
-                            app.popup.replace(new_id);
-                            let mut popup_settings = app.core.applet.get_popup_settings(
-                                app.core.main_window_id().unwrap(),
-                                new_id,
-                                None,
-                                None,
-                                None,
-                            );
-                            popup_settings.positioner.size_limits = Limits::NONE
-                                .max_width(372.0)
-                                .min_width(300.0)
-                                .min_height(200.0)
-                                .max_height(1080.0);
-                            popup_settings
-                        },
-                        None,
-                    )));
+                    // Keep the overlays up until the release arrives, then
+                    // `PointerReleased` tears them down and opens the popup.
+                    self.awaiting_release = true;
 
                     return Task::batch(tasks);
                 }
                 return Task::none().map(cosmic::Action::App);
+            }
+
+            // ── Pointer released on a picker overlay ───────────────────
+            // Ends the picker session: tears down the overlays and opens
+            // the result popup.  The release of the click that launched the
+            // picker also lands on the overlay, but it is ignored —
+            // `awaiting_release` is only set once a colour was picked.
+            Message::PointerReleased(id) => {
+                log::debug!("[picker] PointerReleased({id:?})");
+                if !self.awaiting_release {
+                    return Task::none().map(cosmic::Action::App);
+                }
+                self.awaiting_release = false;
+
+                let Some(picker) = self.picker.take() else {
+                    return Task::none().map(cosmic::Action::App);
+                };
+
+                let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
+                for oid in &picker.overlay_ids {
+                    tasks.push(destroy_layer_surface(*oid));
+                }
+                tasks.push(self.open_popup());
+                return Task::batch(tasks);
             }
 
             // ── Magnifier zoom (scroll on overlay) ──────────────────────
@@ -818,8 +832,8 @@ impl AppModel {
     /// Begin a screen capture and enter picker mode once it completes.
     ///
     /// Shared by the applet button, the `--pick` command-line option, and
-    /// D-Bus activation.  Ignores the request if a picker session is already
-    /// active.
+    /// D-Bus activation.  Ignores the request if a picker session is
+    /// already active.
     fn start_capture(&mut self) -> Task<cosmic::Action<Message>> {
         // Ignore if already picking.
         if self.picker.is_some() {
@@ -831,28 +845,60 @@ impl AppModel {
         self.sampled = None;
         self.copied_target = None;
         self.copied_at = None;
+        self.awaiting_release = false;
         self.magnifier.reset();
 
+        // Pre-create transparent fullscreen overlay surfaces on every output
+        // BEFORE starting the capture.  The overlays map over the (still
+        // live) desktop now; when the capture lands, `CaptureCompleted`
+        // populates them with the frozen image.  Creating and mapping the
+        // surfaces only after the capture completed is what made the whole
+        // screen flash when running as a panel applet — a brand-new Overlay
+        // layer mapped over the live Panel layer mid-session.
+        let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
+        let mut overlay_ids = Vec::new();
+        for output_state in &self.outputs {
+            let overlay_id = output_state.id;
+            overlay_ids.push(overlay_id);
+            tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
+                id: overlay_id,
+                layer: Layer::Overlay,
+                keyboard_interactivity: KeyboardInteractivity::Exclusive,
+                anchor: Anchor::all(),
+                output: IcedOutput::Output(output_state.output.clone()),
+                namespace: "color-picker".to_string(),
+                size: Some((None, None)),
+                exclusive_zone: -1,
+                size_limits: Limits::NONE.min_height(1.0).min_width(1.0),
+                ..Default::default()
+            }));
+        }
+        self.pending_overlay_ids = overlay_ids;
+        log::debug!(
+            "[picker]   pre-created {} overlay surface(s)",
+            self.pending_overlay_ids.len()
+        );
+
         // Start capture in background.
-        let capture_task = Task::perform(
-            picker::capture_outputs(),
-            |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
-                Ok(captures) => Message::CaptureCompleted(captures),
-                Err(e) => Message::CaptureFailed(e.to_string()),
-            },
-        )
-        .map(cosmic::Action::App);
+        tasks.push(
+            Task::perform(
+                picker::capture_outputs(),
+                |result: Result<Vec<CapturedOutput>, anyhow::Error>| match result {
+                    Ok(captures) => Message::CaptureCompleted(captures),
+                    Err(e) => Message::CaptureFailed(e.to_string()),
+                },
+            )
+            .map(cosmic::Action::App),
+        );
 
         // Close popup if open.
         if let Some(popup_id) = self.popup.take() {
-            return Task::batch(vec![
-                surface::surface_task(surface::action::destroy_popup(popup_id)),
-                capture_task,
-            ]);
+            tasks.push(surface::surface_task(surface::action::destroy_popup(
+                popup_id,
+            )));
         }
 
-        // Popup already closed, just start capture.
-        capture_task
+        Task::batch(tasks)
     }
 
     /// Keep the segmented-control selection in sync with the configured
@@ -1081,6 +1127,7 @@ impl AppModel {
         )
         .on_move(on_move)
         .on_press(Message::PointerClicked(id))
+        .on_release(Message::PointerReleased(id))
         .on_scroll(on_scroll)
         .interaction(mouse::Interaction::Crosshair);
 
@@ -1195,6 +1242,9 @@ impl AppModel {
             self.picker.as_ref().map(|p| p.state)
         );
 
+        // A stray release after cancel must not open the popup.
+        self.awaiting_release = false;
+
         // One-shot CLI mode (--pick): the picker session has ended — exit
         // instead of reopening the popup.
         if self.flags.pick {
@@ -1220,27 +1270,7 @@ impl AppModel {
         // Always reopen – even when picker was None (e.g. Escape pressed
         // before capture completed) – to avoid leaving the user without UI.
         if self.popup.is_none() {
-            tasks.push(surface::surface_task(surface::action::app_popup(
-                |_| LiveSettings::default(),
-                |app: &mut AppModel| {
-                    let new_id = Id::unique();
-                    app.popup.replace(new_id);
-                    let mut popup_settings = app.core.applet.get_popup_settings(
-                        app.core.main_window_id().unwrap(),
-                        new_id,
-                        None,
-                        None,
-                        None,
-                    );
-                    popup_settings.positioner.size_limits = Limits::NONE
-                        .max_width(372.0)
-                        .min_width(300.0)
-                        .min_height(200.0)
-                        .max_height(1080.0);
-                    popup_settings
-                },
-                None,
-            )));
+            tasks.push(self.open_popup());
         }
 
         if tasks.is_empty() {
@@ -1248,5 +1278,31 @@ impl AppModel {
         } else {
             Task::batch(tasks)
         }
+    }
+
+    /// Build the task that opens the applet popup (showing the picked
+    /// colour).  Used after picking, and when the picker is cancelled.
+    fn open_popup(&self) -> Task<cosmic::Action<Message>> {
+        surface::surface_task(surface::action::app_popup(
+            |_| LiveSettings::default(),
+            |app: &mut AppModel| {
+                let new_id = Id::unique();
+                app.popup.replace(new_id);
+                let mut popup_settings = app.core.applet.get_popup_settings(
+                    app.core.main_window_id().unwrap(),
+                    new_id,
+                    None,
+                    None,
+                    None,
+                );
+                popup_settings.positioner.size_limits = Limits::NONE
+                    .max_width(372.0)
+                    .min_width(300.0)
+                    .min_height(200.0)
+                    .max_height(1080.0);
+                popup_settings
+            },
+            None,
+        ))
     }
 }
