@@ -11,6 +11,7 @@
   </developer>
   <summary>Eyedropper applet for COSMIC desktop. Pick colours from the screen</summary>
   <summary xml:lang="cs">Applet kapátka pro prostředí COSMIC. Vybírejte barvy přímo z obrazovky</summary>
+  <summary xml:lang="pl">Aplet Eyedropper dla środowiska COSMIC. Pobieraj kolory z ekranu</summary>
   <description>
     <p>
       Pick colors from anywhere on your screen with the COSMIC Eyedropper applet.
@@ -29,12 +30,23 @@
       Klikněte na ikonu kapátka v panelu a poté na libovolný pixel, jehož barvu chcete
       zachytit.
     </p>
+    <p xml:lang="pl">
+      Pobieraj kolory z dowolnego miejsca ekranu dzięki temu apletowi.
+      Naciśnij ikonę Eyedroppera w panelu, a następnie kliknij dowolny piksel by go pobrać.
+    </p>
     <ul xml:lang="cs">
-      <li>Lupa s přiblížením 8×–24× sleduje kurzor pro přesný výběr pixelů</li>
-      <li>Kopírujte barvy jako HEX, RGB nebo HSL</li>
-      <li>Volitelné automatické kopírování do schránky po výběru</li>
-      <li>Historie barev v rozbalovacím okně panelu</li>
-      <li>Spuštění výběru jedním krokem pomocí klávesové zkratky</li>
+      <li xml:lang="cs">Lupa s přiblížením 8×–24× sleduje kurzor pro přesný výběr pixelů</li>
+      <li xml:lang="cs">Kopírujte barvy jako HEX, RGB nebo HSL</li>
+      <li xml:lang="cs">Volitelné automatické kopírování do schránky po výběru</li>
+      <li xml:lang="cs">Historie barev v rozbalovacím okně panelu</li>
+      <li xml:lang="cs">Spuštění výběru jedním krokem pomocí klávesové zkratky</li>
+    </ul>
+    <ul xml:lang="pl">
+      <li xml:lang="pl">Lupa z przybliżeniem x8-x24 która podąża za kursorem dla niezrównanej precyzji pobierania</li>
+      <li xml:lang="pl">Kopiuj kolory jako HEX, RGB albo HSL</li>
+      <li xml:lang="pl">Opcjonalne automatyczne kopiowanie do schowka po wyborze</li>
+      <li xml:lang="pl">Historia pobranych kolorów w wyskakującym oknie w panelu</li>
+      <li xml:lang="pl">Zacznij pobierać kolor przy pomocy skrótu klawiaturowego</li>
     </ul>
   </description>
   <icon type="stock">io.github.nalladev.CosmicExtAppletEyedropper-symbolic</icon>
@@ -45,11 +57,13 @@
     <screenshot type="default">
       <caption>Magnifier in the color-picking state</caption>
       <caption xml:lang="cs">Lupa kapátka v režimu výběru barvy</caption>
+      <caption xml:lang="pl">Lupa podczas pobierania koloru</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-1.png</image>
     </screenshot>
     <screenshot>
       <caption>The applet menu opened from the panel</caption>
       <caption xml:lang="cs">Nabídka appletu otevřená z panelu</caption>
+      <caption xml:lang="pl">Otwarte menu apletu otwarte z panelu</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-2.png</image>
     </screenshot>
   </screenshots>
@@ -76,6 +90,8 @@
     <keyword>color-picker</keyword>
     <keyword xml:lang="cs">kapátko</keyword>
     <keyword xml:lang="cs">výběr barev</keyword>
+    <keyword xml:lang="pl">Pipeta</keyword>
+    <keyword xml:lang="pl">Wybór kolorów</keyword>
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
