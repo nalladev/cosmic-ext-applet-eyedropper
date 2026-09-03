@@ -1,0 +1,14 @@
+app-title = Eyedropper
+about = O Aplecie
+view = Widok
+welcome = Witaj w COSMIC! ✨
+page-id = Strona { $num }
+git-description = Git commit {$hash} z {$date}
+hex = HEX
+rgb = RGB
+hsl = HSL
+select-colour = Wybierz Kolor
+no-color-selected = Nie wybrano koloru
+copied = Skopiowane
+copy-on-select = Kopiuj przy wyborze
+default-color-format = Domyślny format koloru
