@@ -95,6 +95,17 @@
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
+  <release version="0.6.2" date="2026-09-10">
+    <description>
+      <ul>
+        <li>Add Polish (pl) translation for the applet UI</li>
+        <li>Add Polish translations to AppStream metadata (summary, description, feature list, screenshot captions, keywords)</li>
+        <li>Fix missing xml:lang attributes on Czech list items in app.metainfo.xml</li>
+        <li>Thanks to VandaLHJ for the contribution</li>
+      </ul>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.2</url>
+  </release>
   <release version="0.6.1" date="2026-08-09">
     <description>
       <ul>
