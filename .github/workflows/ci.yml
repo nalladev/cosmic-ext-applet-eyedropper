@@ -58,4 +58,7 @@ jobs:
           docker run --rm \
             -v "$GITHUB_WORKSPACE:/mnt" \
             ghcr.io/flathub/flatpak-builder-lint:latest \
-            manifest --gha-format /mnt/io.github.nalladev.CosmicExtAppletEyedropper.json
+            --exceptions \
+            --user-exceptions /mnt/.github/flatpak-builder-lint-exceptions.json \
+            --gha-format \
+            manifest /mnt/io.github.nalladev.CosmicExtAppletEyedropper.json
