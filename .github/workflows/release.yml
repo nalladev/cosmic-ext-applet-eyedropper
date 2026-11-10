@@ -175,6 +175,16 @@ jobs:
           python3 "$RUNNER_TEMP/flatpak-builder-tools/cargo/flatpak-cargo-generator.py" \
             -o cargo-sources.json Cargo.lock
 
+      - name: Point Flatpak manifest at this release
+        working-directory: eyedropper
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python3 scripts/flatpak-manifest.py to-git \
+            "$RELEASE_TAG" \
+            "https://github.com/nalladev/cosmic-ext-applet-eyedropper.git" \
+            io.github.nalladev.CosmicExtAppletEyedropper.json
+
       - name: Check out upstream Flatpak master
         uses: actions/checkout@v5
         with:

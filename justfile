@@ -151,17 +151,16 @@ tag version message='':
     git commit -m 'release: '"$norm_version" && \
     bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
 
-# Update the AppStream entry and the Flatpak manifest tag, then run `just tag`
-# (the staged changes land in the release commit), push main so the release
-# commit is on the remote, then push the new tag, which triggers the GitHub
-# release workflow.
+# Update the AppStream entry, then run `just tag` (the staged changes land in
+# the release commit), push main so the release commit is on the remote, then
+# push the new tag, which triggers the GitHub release workflow. That workflow
+# prepares the Flatpak manifest with the release tag for the upstream PR.
 # Usage: just release 1.2.0 "Release notes here"
 release version message='':
     # Normalize version: strip leading 'v' if present
     norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
     python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
-    python3 scripts/flatpak-manifest.py to-git "$norm_version" "{{repo-url}}" "{{manifest}}" && \
-    git add resources/app.metainfo.xml {{manifest}} && \
+    git add resources/app.metainfo.xml && \
     just tag "{{version}}" "{{message}}" && \
     git push origin main && \
     git push origin v"$norm_version"

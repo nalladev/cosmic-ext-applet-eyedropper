@@ -38,9 +38,8 @@
       ],
       "sources": [
         {
-          "type": "git",
-          "url": "https://github.com/nalladev/cosmic-ext-applet-eyedropper.git",
-          "tag": "v0.6.3"
+          "type": "dir",
+          "path": "."
         },
         "cargo-sources.json"
       ]
