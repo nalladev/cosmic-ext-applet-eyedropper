@@ -95,6 +95,12 @@
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
+  <release version="0.6.4" date="2026-11-10">
+    <description>
+      <p>Stability improvements.</p>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.4</url>
+  </release>
   <release version="0.6.3" date="2026-11-10">
     <description>
       <p>Added a Polish translation for the desktop entry.</p>
