@@ -160,6 +160,7 @@ release version message='':
     # Normalize version: strip leading 'v' if present
     norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
     python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
+    python3 scripts/flatpak-manifest.py to-git "$norm_version" "{{repo-url}}" "{{manifest}}" && \
     git add resources/app.metainfo.xml {{manifest}} && \
     just tag "{{version}}" "{{message}}" && \
     git push origin main && \
