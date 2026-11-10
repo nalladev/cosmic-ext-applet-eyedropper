@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Switch the Flatpak manifest between release and local-build form.
 
 The committed manifest always points at the latest release tag

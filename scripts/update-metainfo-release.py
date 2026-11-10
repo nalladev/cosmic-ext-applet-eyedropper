@@ -63,7 +63,7 @@ def main() -> None:
     # Multi-line messages become a <ul> of <li> bullets (app centres and the
     # COSMIC store render these as a proper list); a single-line message stays
     # a plain <p>. Both are valid AppStream rich text.
-    date = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    date = datetime.datetime.now(datetime.UTC).date().isoformat()
     repo = repo_url.removesuffix(".git")
 
     lines = []
