@@ -203,26 +203,35 @@ jobs:
 
           git remote add fork https://x-access-token:${GH_TOKEN}@github.com/nalladev/cosmic-flatpak.git
           git fetch origin master
-          git fetch fork
+          git fetch fork \
+            refs/heads/master:refs/remotes/fork/master \
+            refs/heads/add-cosmic-ext-applet-eyedropper:refs/remotes/fork/add-cosmic-ext-applet-eyedropper
 
-          BRANCH="automation/eyedropper-${{ github.ref_name }}"
-          git switch --force-create "$BRANCH" origin/master
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Sync only the fork's master and the existing Eyedropper feature branch.
+          git switch --force-create master fork/master
+          git merge --no-edit origin/master
+          git push fork master
+
+          BRANCH="add-cosmic-ext-applet-eyedropper"
+          git switch --force-create "$BRANCH" "fork/$BRANCH"
+          git merge --no-edit master
 
           APP_DIR="app/io.github.nalladev.CosmicExtAppletEyedropper"
           cp "../eyedropper/io.github.nalladev.CosmicExtAppletEyedropper.json" \
             "$APP_DIR/io.github.nalladev.CosmicExtAppletEyedropper.json"
           cp ../eyedropper/cargo-sources.json "$APP_DIR/cargo-sources.json"
 
-          if git diff --quiet -- "$APP_DIR/io.github.nalladev.CosmicExtAppletEyedropper.json" "$APP_DIR/cargo-sources.json"; then
-            echo "No Flatpak changes for this release."
-            exit 0
+          git add "$APP_DIR/io.github.nalladev.CosmicExtAppletEyedropper.json" "$APP_DIR/cargo-sources.json"
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Eyedropper Flatpak to ${{ github.ref_name }}"
+          else
+            echo "Flatpak files already match release ${{ github.ref_name }}."
           fi
 
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$APP_DIR/io.github.nalladev.CosmicExtAppletEyedropper.json" "$APP_DIR/cargo-sources.json"
-          git commit -m "Update Eyedropper Flatpak to ${{ github.ref_name }}"
-          git push --force-with-lease fork "$BRANCH"
+          git push fork "$BRANCH"
 
           if gh pr view "$BRANCH" --repo pop-os/cosmic-flatpak >/dev/null 2>&1; then
             echo "Updated existing PR for $BRANCH."
