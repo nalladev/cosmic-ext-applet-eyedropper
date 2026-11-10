@@ -22,7 +22,7 @@ Usage:
 import argparse
 import json
 
-MANIFEST = "flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json"
+MANIFEST = "io.github.nalladev.CosmicExtAppletEyedropper.json"
 DIR_SOURCE = {"type": "dir", "path": ".."}
 
 
