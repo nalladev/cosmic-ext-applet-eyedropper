@@ -164,3 +164,12 @@ release version message='':
     just tag "{{version}}" "{{message}}" && \
     git push origin main && \
     git push origin v"$norm_version"
+
+# Update libcosmic to the latest master commit, regenerate the Flatpak cargo
+# sources, and type-check. Run after a COSMIC release to pick up new libcosmic
+# APIs/fixes. Review the diff before committing: git diff Cargo.lock flatpak/cargo-sources.json
+# If libcosmic introduced breaking changes, fix them before committing.
+deps-update:
+    cargo update -p libcosmic
+    just vendor-flatpak
+    cargo check
