@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use app::Flags;
 use cosmic::Application;
-use cosmic::dbus_activation::DbusActivationInterfaceProxyBlocking;
+
 
 /// Print usage information for the command-line interface.
 fn print_help() {
@@ -40,17 +40,17 @@ fn try_activate_existing_instance(action: &str) -> bool {
 
     let path: String = format!("/{}", app::AppModel::APP_ID.replace('.', "/"));
 
-    let Some(mut proxy) = DbusActivationInterfaceProxyBlocking::builder(&conn)
-        .destination(app::AppModel::APP_ID)
-        .ok()
-        .and_then(|b| b.path(path).ok())
-        .and_then(|b| b.build().ok())
-    else {
+    let Ok(proxy) = zbus::blocking::Proxy::new(
+        &conn,
+        app::AppModel::APP_ID,
+        path,
+        "org.freedesktop.DbusActivation",
+    ) else {
         log::warn!("[activation] could not build D-Bus proxy — starting a new instance");
         return false;
     };
 
-    let mut platform_data = HashMap::new();
+    let mut platform_data: HashMap<&str, zbus::zvariant::Value<'_>> = HashMap::new();
     if let Ok(token) = std::env::var("XDG_ACTIVATION_TOKEN") {
         platform_data.insert("activation-token", token.into());
     }
@@ -58,8 +58,8 @@ fn try_activate_existing_instance(action: &str) -> bool {
         platform_data.insert("desktop-startup-id", startup_id.into());
     }
 
-    match proxy.activate_action(action, Vec::new(), platform_data) {
-        Ok(()) => {
+    match proxy.call_method("ActivateAction", &(action, Vec::<&str>::new(), platform_data)) {
+        Ok(_) => {
             log::info!("[activation] forwarded {action:?} to the running instance");
             true
         }
