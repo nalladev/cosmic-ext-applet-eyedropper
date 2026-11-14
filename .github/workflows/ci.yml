@@ -26,21 +26,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Install flatpak-builder and appstreamcli
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak-builder python3 appstream
-
-      - name: Validate manifest syntax
-        run: |
-          flatpak-builder --show-manifest flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
-
-      - name: Validate AppStream metadata
-        run: |
-          appstreamcli validate resources/app.metainfo.xml
+          sudo apt-get install -y flatpak-builder python3 python3-pip appstream
 
       - name: Checkout flatpak-builder-tools
         run: |
@@ -48,27 +38,27 @@ jobs:
 
       - name: Install Python dependencies for generator
         run: |
-          pip3 install aiohttp tomlkit PyYAML
+          pip3 install --break-system-packages aiohttp tomlkit PyYAML
 
-      - name: Check cargo-sources.json is up to date
+      - name: Generate cargo-sources.json
         run: |
-          OUT="flatpak/cargo-sources.json"
-          REGEN="flatpak/cargo-sources-regen.json"
+          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py \
+            -o cargo-sources.json Cargo.lock
 
-          if [ ! -f "$OUT" ]; then
-            echo "Error: $OUT is missing. Run 'just vendor-flatpak' to generate it."
-            exit 1
-          fi
+      - name: Validate manifest syntax
+        run: |
+          flatpak-builder --show-manifest io.github.nalladev.CosmicExtAppletEyedropper.json > /dev/null
 
-          python3 flatpak-builder-tools/cargo/flatpak-cargo-generator.py -o "$REGEN" Cargo.lock
+      - name: Validate AppStream metadata
+        run: |
+          appstreamcli validate resources/app.metainfo.xml
 
-          if ! cmp -s "$OUT" "$REGEN"; then
-            echo "Error: $OUT is out of date with Cargo.lock."
-            echo "Run 'just vendor-flatpak' locally and commit the updated file."
-            diff -u "$OUT" "$REGEN" || true
-            rm "$REGEN"
-            exit 1
-          fi
-
-          rm "$REGEN"
-          echo "$OUT is up to date."
+      - name: Lint Flatpak manifest
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/mnt" \
+            ghcr.io/flathub/flatpak-builder-lint:latest \
+            --exceptions \
+            --user-exceptions /mnt/.github/flatpak-builder-lint-exceptions.json \
+            --gha-format \
+            manifest /mnt/io.github.nalladev.CosmicExtAppletEyedropper.json

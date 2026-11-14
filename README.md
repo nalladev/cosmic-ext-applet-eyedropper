@@ -2,9 +2,9 @@
 
 An eyedropper applet for the [COSMIC](https://system76.com/cosmic) desktop. Pick any colour from your screen and copy it as hex, RGB, or HSL.
 
-![Screenshot](/resources/screenshot-1.png)
+![Magnifier in the colour-picking state](/resources/screenshot-1.png)
 
-![Screenshot](/resources/screenshot-2.png)
+![The applet menu opened from the panel](/resources/screenshot-2.png)
 
 ## Features
 
@@ -57,6 +57,8 @@ just flatpak-install     # Build and install the Flatpak from the working tree
 ## Contributing
 
 Contributions are welcome. Feel free to open issues or submit pull requests.
+
+Want to help translate Eyedropper? The [translation guide](CONTRIBUTING.md#adding-a-translation) walks through the text inside the app, store description, and desktop name and description.
 
 ## License
 

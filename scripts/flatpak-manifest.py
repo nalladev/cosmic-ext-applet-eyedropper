@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Switch the Flatpak manifest between release and local-build form.
 
 The committed manifest always points at the latest release tag
@@ -22,7 +21,7 @@ Usage:
 import argparse
 import json
 
-MANIFEST = "flatpak/io.github.nalladev.CosmicExtAppletEyedropper.json"
+MANIFEST = "io.github.nalladev.CosmicExtAppletEyedropper.json"
 DIR_SOURCE = {"type": "dir", "path": ".."}
 
 
