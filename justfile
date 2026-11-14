@@ -128,7 +128,7 @@ vendor-flatpak:
 flatpak-install *args: vendor-flatpak
     #!/usr/bin/env bash
     set -euo pipefail
-    flatpak-builder --user --install --ccache --force-clean {{args}} build-dir {{manifest}}
+    flatpak-builder --user --install --ccache --keep-build-dirs --disable-tests  --force-clean {{args}} build-dir {{manifest}}
     echo "Installed local test build — add the applet to the panel to test"
     echo "Replaces if any existing applet (store version or local build)"
 

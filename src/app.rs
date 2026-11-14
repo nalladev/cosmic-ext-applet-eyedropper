@@ -144,13 +144,7 @@ pub struct AppModel {
     /// `None` during normal operation.
     picker: Option<PickerController>,
 
-    // ── Pre-created overlay tracking ───────────────────────────────────
-    /// Overlay window IDs that have been pre-created (transparent) but
-    /// are not yet showing the frozen image.  Populated by
-    /// `precreate_overlays` before the portal capture starts; taken by
-    /// `CaptureCompleted` once the frozen image is ready, or drained on
-    /// cancel/failure.
-    pending_overlay_ids: Vec<window::Id>,
+
     /// A colour was picked on press but the overlays stay up until the
     /// release lands (`Message::PointerReleased`), which tears them down
     /// and opens the result popup.  Opening the popup from the release
@@ -160,8 +154,7 @@ pub struct AppModel {
     /// A capture was requested while the popup was open: the popup was
     /// destroyed and the portal capture is deferred until `PopupClosed`
     /// confirms it is gone, so the menu can never appear inside the frozen
-    /// screen.  The overlay surfaces are pre-created in parallel — only
-    /// the capture waits.
+    /// screen. Only then does the screenshot request begin.
     start_after_popup_close: bool,
 
     // ── Clipboard feedback ───────────────────────────────────────────
@@ -229,11 +222,6 @@ pub enum Message {
     /// Auto-cleared after copy feedback timeout.
     ClearCopyFeedback,
 
-    // ── Pre-created overlay lifecycle ──────────────────────────────────
-    /// A pre-created overlay surface has been acknowledged by the
-    /// compositor (configure received).
-    #[allow(dead_code)]
-    OverlayCreated(Id),
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +274,6 @@ impl cosmic::Application for AppModel {
             hsl: String::new(),
             outputs: Vec::new(),
             picker: None,
-            pending_overlay_ids: Vec::new(),
             awaiting_release: false,
             start_after_popup_close: false,
             copied_target: None,
@@ -330,12 +317,11 @@ impl cosmic::Application for AppModel {
 
     /// Draw a window – either the popup or a picker overlay.
     fn view_window(&self, id: Id) -> Element<'_, Self::Message> {
-        // Is this a picker overlay (active picker or pre-created)?
+        // Is this an active picker overlay?
         if self
             .picker
             .as_ref()
             .is_some_and(|p| p.overlay_ids.contains(&id))
-            || self.pending_overlay_ids.contains(&id)
         {
             return self.view_picker_overlay(id);
         }
@@ -380,10 +366,7 @@ impl cosmic::Application for AppModel {
                 // up, the release of the launch click can land on the panel
                 // icon. Toggling the popup then would reopen the menu
                 // during the capture.
-                if self.picker.is_some()
-                    || self.start_after_popup_close
-                    || !self.pending_overlay_ids.is_empty()
-                {
+                if self.picker.is_some() || self.start_after_popup_close {
                     return Task::none();
                 }
                 return if let Some(p) = self.popup.take() {
@@ -417,9 +400,8 @@ impl cosmic::Application for AppModel {
             Message::PopupClosed(id) => {
                 // A capture was requested while the popup was open:
                 // `request_capture` already took the popup, so `self.popup`
-                // won't match here.  The close is confirmed — start the
-                // capture now (the overlays were pre-created already), so
-                // the menu can't appear in the frozen frame.
+                // won't match here. The close is confirmed — start capture
+                // now so the menu cannot appear in the frozen frame.
                 if self.start_after_popup_close {
                     self.start_after_popup_close = false;
                     self.popup = None;
@@ -502,26 +484,8 @@ impl cosmic::Application for AppModel {
                     image_handles.push(cap.image_handle.clone());
                 }
 
-                // If overlays were pre-created (transparent) during
-                // EyedropperClicked, reuse them — just populate the picker
-                // with the captured data.  The overlay views will render
-                // the frozen image on the next frame, completing the
-                // flicker-free transition.
-                if !self.pending_overlay_ids.is_empty() {
-                    let overlay_ids = std::mem::take(&mut self.pending_overlay_ids);
-                    let n_overlays = overlay_ids.len();
-                    self.picker = Some(PickerController::new_with_captures(
-                        captures,
-                        image_handles,
-                        overlay_ids,
-                    ));
-                    log::debug!(
-                        "[picker]   picker created in Picking state with {n_overlays} overlays"
-                    );
-                    return Task::none();
-                }
-
-                // Fallback: create overlay windows now (no pre-creation).
+                // Create overlay windows only after capture has completed,
+                // so they can display the captured frame immediately.
                 let mut tasks: Vec<Task<cosmic::Action<Self::Message>>> = Vec::new();
                 let mut overlay_ids = Vec::new();
 
@@ -831,7 +795,6 @@ impl cosmic::Application for AppModel {
                 return self.cancel_picker();
             }
 
-            Message::OverlayCreated(_) => {}
         }
 
         Task::none()
@@ -865,12 +828,10 @@ impl AppModel {
 
     /// Enter picker mode, closing the popup first if one is open.
     ///
-    /// If the popup is open, it is destroyed and only the portal capture
-    /// is deferred until `PopupClosed` confirms it is gone — otherwise the
-    /// still-open menu would be captured inside the frozen frame.  The
-    /// overlay surfaces are pre-created immediately, in parallel with the
-    /// popup close, so the freeze is flicker-free.  If no popup is open,
-    /// the capture starts immediately.
+    /// If the popup is open, it is destroyed and the portal capture is
+    /// deferred until `PopupClosed` confirms it is gone, so the menu is not
+    /// included in the screenshot. Overlay surfaces are created only after
+    /// the portal capture succeeds.
     ///
     /// Shared by the applet button and D-Bus activation (`--pick`).  Ignores
     /// the request if a picker session is already active.
@@ -881,10 +842,9 @@ impl AppModel {
             return Task::none();
         }
 
-        // A start is already pending (popup closing, or overlays
-        // pre-created but the capture hasn't completed) — e.g. a keyboard
-        // activation racing the mouse press.
-        if self.start_after_popup_close || !self.pending_overlay_ids.is_empty() {
+        // A start is already pending while the popup closes — e.g. a
+        // keyboard activation racing the mouse press.
+        if self.start_after_popup_close {
             return Task::none();
         }
 
@@ -895,10 +855,6 @@ impl AppModel {
         self.awaiting_release = false;
         self.magnifier.reset();
 
-        // Do not create exclusive overlay surfaces until portal capture has
-        // completed. The portal may display a permission dialog, and mapping
-        // overlays beforehand would freeze input and alter the cursor while
-        // that dialog is awaiting the user's decision.
         let mut tasks = Vec::new();
 
         // Close an open popup before requesting permission/capture.
@@ -918,38 +874,9 @@ impl AppModel {
         Task::batch(tasks)
     }
 
-    /// Pre-create transparent fullscreen overlay surfaces on every output
-    /// and record their IDs in `pending_overlay_ids`.
-    fn precreate_overlays(&mut self) -> Vec<Task<cosmic::Action<Message>>> {
-        let mut tasks: Vec<Task<cosmic::Action<Message>>> = Vec::new();
-        let mut overlay_ids = Vec::new();
-        for output_state in &self.outputs {
-            let overlay_id = output_state.id;
-            overlay_ids.push(overlay_id);
-            tasks.push(get_layer_surface(SctkLayerSurfaceSettings {
-                id: overlay_id,
-                layer: Layer::Overlay,
-                keyboard_interactivity: KeyboardInteractivity::Exclusive,
-                anchor: Anchor::all(),
-                output: IcedOutput::Output(output_state.output.clone()),
-                namespace: "color-picker".to_string(),
-                size: Some((None, None)),
-                exclusive_zone: -1,
-                size_limits: Limits::NONE.min_height(1.0).min_width(1.0),
-                ..Default::default()
-            }));
-        }
-        self.pending_overlay_ids = overlay_ids;
-        log::debug!(
-            "[picker]   pre-created {} overlay surface(s)",
-            self.pending_overlay_ids.len()
-        );
-        tasks
-    }
 
-    /// Request the portal screenshot in the background.  The overlay
-    /// surfaces must already be pre-created (`precreate_overlays`) and any
-    /// open popup must already be confirmed closed (`Message::PopupClosed`).
+    /// Request the portal screenshot in the background. Any open popup must
+    /// already be confirmed closed (`Message::PopupClosed`).
     fn begin_portal_capture() -> Task<cosmic::Action<Message>> {
         Task::perform(
             picker::capture_outputs(),
@@ -1132,23 +1059,6 @@ impl AppModel {
     /// crosshair, and optional magnifier.
     fn view_picker_overlay(&self, id: Id) -> Element<'_, Message> {
         let Some(picker) = self.picker.as_ref() else {
-            // Pre-created overlay: picker doesn't exist yet (capture in
-            // progress).  Render a full-screen transparent surface with
-            // keyboard support so Escape works immediately.
-            if self.pending_overlay_ids.contains(&id) {
-                let event_layer = MouseArea::new(
-                    container(space::horizontal())
-                        .width(Length::Fill)
-                        .height(Length::Fill),
-                )
-                .interaction(mouse::Interaction::Crosshair);
-
-                return KeyboardWrapper::new(event_layer, |key, _modifiers| match key {
-                    Key::Named(Named::Escape) => Some(Message::PickerCancel),
-                    _ => None,
-                })
-                .into();
-            }
             return space::horizontal().width(Length::Fixed(1.0)).into();
         };
 
@@ -1323,11 +1233,6 @@ impl AppModel {
             }
         }
 
-        // Destroy any pre-created (transparent) overlays that haven't been
-        // populated with captures yet.
-        for id in self.pending_overlay_ids.drain(..) {
-            tasks.push(destroy_layer_surface(id));
-        }
 
         // Reopen the popup if it's not already open.
         // Always reopen – even when picker was None (e.g. Escape pressed
