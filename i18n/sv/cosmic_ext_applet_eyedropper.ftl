@@ -1,0 +1,14 @@
+app-title = Pipett
+about = Om
+view = Visa
+welcome = Välkommen till COSMIC! ✨
+page-id = Sida { $num }
+git-description = Git commit {$hash} på {$date}
+hex = HEX
+rgb = RGB
+hsl = HSL
+select-colour = Välj färg  
+no-color-selected = Ingen färg vald
+copied = Kopierad
+copy-on-select = Kopiera vid markering
+default-color-format = Standardfärgformat
