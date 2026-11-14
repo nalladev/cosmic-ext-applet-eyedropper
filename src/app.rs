@@ -895,16 +895,16 @@ impl AppModel {
         self.awaiting_release = false;
         self.magnifier.reset();
 
-        // Pre-create transparent fullscreen overlay surfaces on every output
-        // NOW, in parallel with the popup close.  The overlays map over the
-        // (still live) desktop invisibly; when the capture lands,
-        // `CaptureCompleted` populates them with the frozen image.  Creating
-        // and mapping the surfaces only after the capture completed is what
-        // made the whole screen flash when running as a panel applet — a
-        // brand-new Overlay layer mapped over the live Panel layer mid-session.
-        let mut tasks = self.precreate_overlays();
+        // Do not create exclusive overlay surfaces until portal capture has
+        // completed. The portal may display a permission dialog, and mapping
+        // overlays beforehand would freeze input and alter the cursor while
+        // that dialog is awaiting the user's decision.
+        let mut tasks = Vec::new();
 
-        // Close an open popup first; `PopupClosed` starts the capture.
+        // Close an open popup before requesting permission/capture.
+        // Keep the desktop interactive while the portal dialog is
+        // awaiting a decision; overlays would grab input and change
+        // the cursor before the user responds.
         if let Some(popup_id) = self.popup.take() {
             self.start_after_popup_close = true;
             log::info!("[picker]   closing popup — capture starts after PopupClosed");
