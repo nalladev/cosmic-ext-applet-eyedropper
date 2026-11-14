@@ -96,6 +96,12 @@
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
+  <release version="0.6.5" date="2026-11-14">
+    <description>
+      <p>Improved screen capture permission handling and stability.</p>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.5</url>
+  </release>
   <release version="0.6.4" date="2026-11-10">
     <description>
       <p>Stability improvements.</p>
