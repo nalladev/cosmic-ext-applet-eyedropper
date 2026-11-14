@@ -124,12 +124,11 @@ vendor-flatpak:
         echo "$OUT is up to date"
     fi
 
-# Build and install the local test build from a throwaway copy of the
-# manifest (dir source); the committed manifest keeps its release tag.
+# Build and install the local test build from the root manifest and working tree.
 flatpak-install *args: vendor-flatpak
     #!/usr/bin/env bash
     set -euo pipefail
-    flatpak-builder --user --install --ccache {{args}} build-dir {{manifest}}
+    flatpak-builder --user --install --ccache --force-clean {{args}} build-dir {{manifest}}
     echo "Installed local test build — add the applet to the panel to test"
     echo "Replaces if any existing applet (store version or local build)"
 
