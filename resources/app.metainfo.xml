@@ -5,6 +5,7 @@
   <project_license>MPL-2.0</project_license>
   <name>Eyedropper</name>
   <name xml:lang="cs">Kapátko</name>
+  <!-- deprecated --> <developer_name>Joel</developer_name>
   <developer id="io.github.nalladev">
     <name>Joel</name>
     <url type="homepage">https://github.com/nalladev</url>
