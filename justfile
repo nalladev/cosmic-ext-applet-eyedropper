@@ -63,6 +63,10 @@ lint-json: (lint '--message-format=json')
 run *args:
     env RUST_BACKTRACE=full cargo run --release {{args}}
 
+# Runs the application in development mode
+run-dev *args:
+    env RUST_BACKTRACE=full cargo run {{args}}
+
 # Installs files
 install:
     install -Dm0755 {{ cargo-target-dir / 'release' / name }} {{bin-dst}}
