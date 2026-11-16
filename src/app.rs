@@ -950,7 +950,6 @@ impl AppModel {
             space_s,
             ..
         } = theme::active().cosmic().spacing;
-        let corner_radii = theme::active().cosmic().corner_radii;
 
         // Derive display strings.
         let (hex_val, rgb_val, hsl_val): (String, String, String) = if let Some(c) = self.sampled {
@@ -966,18 +965,21 @@ impl AppModel {
             cosmic::iced::Color::from_rgb8(c.r, c.g, c.b)
         });
 
-        let swatch =
-            container(space::horizontal())
-                .width(32)
-                .height(32)
-                .style(move |_: &cosmic::Theme| container::Style {
+        let swatch = container(space::horizontal())
+            .width(Length::Fixed(48.0))
+            .height(Length::Fixed(24.0))
+            .style(move |theme: &cosmic::Theme| {
+                let cosmic = theme.cosmic();
+                container::Style {
                     background: Some(swatch_color.into()),
                     border: Border {
-                        radius: corner_radii.radius_s.into(),
-                        ..Default::default()
+                        color: cosmic.palette.neutral_8.into(),
+                        width: 1.0,
+                        radius: cosmic.radius_xs().into(),
                     },
                     ..Default::default()
-                });
+                }
+            });
 
         // Centre text: HEX value or placeholder.
         let centre: Element<'_, Message> = if has_color {
