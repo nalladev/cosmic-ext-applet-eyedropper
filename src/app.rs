@@ -377,19 +377,13 @@ impl cosmic::Application for AppModel {
                         |app: &mut AppModel| {
                             let new_id = Id::unique();
                             app.popup.replace(new_id);
-                            let mut popup_settings = app.core.applet.get_popup_settings(
+                            app.core.applet.get_popup_settings(
                                 app.core.main_window_id().unwrap(),
                                 new_id,
                                 None,
                                 None,
                                 None,
-                            );
-                            popup_settings.positioner.size_limits = Limits::NONE
-                                .max_width(372.0)
-                                .min_width(300.0)
-                                .min_height(200.0)
-                                .max_height(1080.0);
-                            popup_settings
+                            )
                         },
                         None,
                     ))
@@ -1256,19 +1250,13 @@ impl AppModel {
             |app: &mut AppModel| {
                 let new_id = Id::unique();
                 app.popup.replace(new_id);
-                let mut popup_settings = app.core.applet.get_popup_settings(
+                app.core.applet.get_popup_settings(
                     app.core.main_window_id().unwrap(),
                     new_id,
                     None,
                     None,
                     None,
-                );
-                popup_settings.positioner.size_limits = Limits::NONE
-                    .max_width(372.0)
-                    .min_width(300.0)
-                    .min_height(200.0)
-                    .max_height(1080.0);
-                popup_settings
+                )
             },
             None,
         ))
