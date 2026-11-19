@@ -96,6 +96,16 @@
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
+  <release version="0.6.6" date="2026-11-19">
+    <description>
+      <ul>
+        <li>Reduce CPU usage while the picker is idle. Thanks to @mikeyarce.</li>
+        <li>Improve screen capture and picker overlay handling.</li>
+        <li>Refine the color preview and popup sizing.</li>
+      </ul>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.6</url>
+  </release>
   <release version="0.6.5" date="2026-11-14">
     <description>
       <p>Improved screen capture permission handling and stability.</p>
