@@ -336,7 +336,7 @@ impl cosmic::Application for AppModel {
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
-        let subs: Vec<Subscription<Self::Message>> = vec![
+        let mut subs: Vec<Subscription<Self::Message>> = vec![
             // Config changes
             self.core()
                 .watch_config::<Config>(Self::APP_ID)
@@ -350,9 +350,17 @@ impl cosmic::Application for AppModel {
             }),
             // D-Bus activation (`--pick` forwarded to this instance)
             activation::subscription().map(|_| Message::DbusPick),
-            // ~60 fps tick for throttled zoom application.
-            cosmic::iced::time::every(Duration::from_millis(16)).map(|_| Message::FrameTick),
         ];
+
+        // ~60 fps tick for throttled zoom application. Only run it while a
+        // scroll is waiting to be applied: a permanent tick wakes the app 60
+        // times a second and redraws the full-screen overlays each time, which
+        // pins a CPU core for as long as the picker is open.
+        if self.magnifier.pending_zoom_delta != 0.0 {
+            subs.push(
+                cosmic::iced::time::every(Duration::from_millis(16)).map(|_| Message::FrameTick),
+            );
+        }
 
         Subscription::batch(subs)
     }
