@@ -3,16 +3,21 @@
   <id>io.github.nalladev.CosmicExtAppletEyedropper</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MPL-2.0</project_license>
+  
   <name>Eyedropper</name>
   <name xml:lang="cs">Kapátko</name>
+  <name xml:lang="pl">Zakraplacz</name>
+  
   <!-- deprecated --> <developer_name>Joel</developer_name>
   <developer id="io.github.nalladev">
     <name>Joel</name>
     <url type="homepage">https://github.com/nalladev</url>
   </developer>
+  
   <summary>Eyedropper applet for COSMIC desktop. Pick colours from the screen</summary>
   <summary xml:lang="cs">Applet kapátka pro prostředí COSMIC. Vybírejte barvy přímo z obrazovky</summary>
   <summary xml:lang="pl">Aplet Eyedropper dla środowiska COSMIC. Pobieraj kolory z ekranu</summary>
+  
   <description>
     <p>
       Pick colors from anywhere on your screen with the COSMIC Eyedropper applet.
