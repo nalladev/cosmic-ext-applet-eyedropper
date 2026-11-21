@@ -1,7 +1,7 @@
 name := 'cosmic-ext-applet-eyedropper'
 appid := 'io.github.nalladev.CosmicExtAppletEyedropper'
 manifest := appid + '.json'
-repo-url := 'https://github.com/nalladev/cosmic-ext-applet-eyedropper.git'
+
 
 rootdir := ''
 prefix := '/usr'
@@ -141,32 +141,13 @@ flatpak-uninstall:
     flatpak uninstall --user {{appid}}
     echo "To get the production copy back, reinstall from the COSMIC store."
 
-# Bump the version in Cargo.toml, run cargo check, commit everything staged, and tag.
-# Any changes you staged beforehand (e.g. the AppStream entry via `just release`)
-# are included in the commit automatically.
-# Usage: just tag 1.2.0 "Release notes here" or just tag v1.2.0 "Release notes here"
-tag version message='':
-    # Normalize version: strip leading 'v' if present
-    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
-    find -type f -name Cargo.toml -exec sed -i '0,/^version/s/^version.*/version = "'"$norm_version"'"/' '{}' \; -exec git add '{}' \; && \
-    cargo check && \
-    git add Cargo.lock && \
-    git commit -m 'release: '"$norm_version" && \
-    bash -c 'if [ -n "{{message}}" ]; then git tag -a v'"$norm_version"' -m "{{message}}"; else git tag -a v'"$norm_version"' -m "Release '"$norm_version"'"; fi'
-
-# Update the AppStream entry, then run `just tag` (the staged changes land in
-# the release commit), push main so the release commit is on the remote, then
-# push the new tag, which triggers the GitHub release workflow. That workflow
-# prepares the Flatpak manifest with the release tag for the upstream PR.
-# Usage: just release 1.2.0 "Release notes here"
-release version message='':
-    # Normalize version: strip leading 'v' if present
-    norm_version=`bash -c 'v="{{version}}"; echo "${v#v}"'` && \
-    python3 scripts/update-metainfo-release.py "$norm_version" "{{message}}" "{{repo-url}}" && \
-    git add resources/app.metainfo.xml && \
-    just tag "{{version}}" "{{message}}" && \
-    git push origin main && \
-    git push origin v"$norm_version"
+# Cut a release. The first run adds an empty <release> to resources/app.metainfo.xml
+# and stops; write its <description>, then run the same command again to bump
+# Cargo.toml, run the CI checks, commit "release: X.Y.Z", tag vX.Y.Z and push both.
+# If anything fails nothing is reverted: fix it and re-run the same command.
+# Usage: just release 0.7.0   (a leading 'v' is accepted)
+release version:
+    python3 scripts/release.py "{{version}}"
 
 # Update libcosmic to the latest master commit, regenerate the Flatpak cargo
 # sources, and type-check. Run after a COSMIC release to pick up new libcosmic
