@@ -6,6 +6,7 @@
   
   <name>Eyedropper</name>
   <name xml:lang="cs">Kapátko</name>
+  <name xml:lang="sv">Droppflaska</name>
   <name xml:lang="pl">Zakraplacz</name>
   
   <!-- deprecated --> <developer_name>Joel</developer_name>
@@ -16,6 +17,7 @@
   
   <summary>Eyedropper applet for COSMIC desktop. Pick colours from the screen</summary>
   <summary xml:lang="cs">Applet kapátka pro prostředí COSMIC. Vybírejte barvy přímo z obrazovky</summary>
+  <summary xml:lang="sv">Pipettapplet för COSMIC. Välj färger direkt från skärmen.</summary>
   <summary xml:lang="pl">Aplet Eyedropper dla środowiska COSMIC. Pobieraj kolory z ekranu</summary>
   
   <description>
@@ -43,6 +45,18 @@
       <li xml:lang="cs">Historie barev v rozbalovacím okně panelu</li>
       <li xml:lang="cs">Spuštění výběru jedním krokem pomocí klávesové zkratky</li>
     </ul>
+    <p xml:lang="sv">
+      Välj färger var som helst på skärmen med hjälp av COSMIC Pipett-appleten.
+      Klicka på pipettikonen i panelen och klicka sedan på valfri pixel för att hämta dess färg.
+      
+    </p>
+    <ul>
+      <li xml:lang="sv">Ett zoomförstoringsverktyg med 8–24 gångers förstoring följer markören för exakt val av pixlar./li>
+      <li xml:lang="sv">Kopiera färger som HEX, RGB eller HSL/li>
+      <li xml:lang="sv">Valfri automatisk kopiering till urklipp vid markering</li>
+      <li xml:lang="sv">Färghistorik i panelens rullgardinsmeny</li>
+      <li xml:lang="cs">Starta ett val i ett steg med hjälp av ett kortkommando</li>
+    </ul>
     <p xml:lang="pl">
       Pobieraj kolory z dowolnego miejsca ekranu dzięki temu apletowi.
       Naciśnij ikonę Eyedroppera w panelu, a następnie kliknij dowolny piksel by go pobrać.
@@ -63,12 +77,14 @@
     <screenshot type="default">
       <caption>Magnifier in the color-picking state</caption>
       <caption xml:lang="cs">Lupa kapátka v režimu výběru barvy</caption>
+      <caption xml:lang="sv">Förstoringsglas för färghämtning i läge för färgval</caption>
       <caption xml:lang="pl">Lupa podczas pobierania koloru</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-1.png</image>
     </screenshot>
     <screenshot>
       <caption>The applet menu opened from the panel</caption>
       <caption xml:lang="cs">Nabídka appletu otevřená z panelu</caption>
+      <caption xml:lang="sv">Appletmeny öppnad från panelen</caption>
       <caption xml:lang="pl">Otwarte menu apletu otwarte z panelu</caption>
       <image>https://raw.githubusercontent.com/nalladev/cosmic-ext-applet-eyedropper/main/resources/screenshot-2.png</image>
     </screenshot>
@@ -96,6 +112,8 @@
     <keyword>color-picker</keyword>
     <keyword xml:lang="cs">kapátko</keyword>
     <keyword xml:lang="cs">výběr barev</keyword>
+    <keyword xml:lang="sv">pipett</keyword>
+    <keyword xml:lang="sv">urval barev</keyword>
     <keyword xml:lang="pl">Pipeta</keyword>
     <keyword xml:lang="pl">Wybór kolorów</keyword>
   </keywords>
