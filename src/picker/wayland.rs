@@ -93,7 +93,10 @@ pub async fn capture_outputs() -> Result<Vec<CapturedOutput>, anyhow::Error> {
         .await
         .map_err(|e| anyhow::anyhow!("Screenshot request failed: {e}"))?
         .response()
-        .map_err(|e| anyhow::anyhow!("Screenshot response error: {e}"))?;
+        .map_err(|e| {
+            log::warn!("[capture] Screenshot request was not accepted: {e}");
+            anyhow::anyhow!("Screen capture permission denied. Reset the saved permission to try again.")
+        })?;
 
     let uri = response.uri();
     let path = uri

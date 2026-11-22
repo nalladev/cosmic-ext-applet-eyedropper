@@ -1,4 +1,21 @@
+# Rust build artifacts
 target/
-.git/
+
+# Flatpak build artifacts
 build-dir/
 .flatpak-builder/
+flatpak-repo/
+
+# Git and CI
+.git/
+.github/
+.gitignore
+
+# Development files
+justfile
+todo.md
+README.md
+
+# Python cache
+__pycache__/
+*.pyc

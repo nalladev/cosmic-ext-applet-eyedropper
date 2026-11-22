@@ -3,15 +3,21 @@
   <id>io.github.nalladev.CosmicExtAppletEyedropper</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MPL-2.0</project_license>
+  
   <name>Eyedropper</name>
   <name xml:lang="cs">Kapátko</name>
-  <developer id="com.github.nalladev">
+  <name xml:lang="pl">Zakraplacz</name>
+  
+  <!-- deprecated --> <developer_name>Joel</developer_name>
+  <developer id="io.github.nalladev">
     <name>Joel</name>
     <url type="homepage">https://github.com/nalladev</url>
   </developer>
+  
   <summary>Eyedropper applet for COSMIC desktop. Pick colours from the screen</summary>
   <summary xml:lang="cs">Applet kapátka pro prostředí COSMIC. Vybírejte barvy přímo z obrazovky</summary>
   <summary xml:lang="pl">Aplet Eyedropper dla środowiska COSMIC. Pobieraj kolory z ekranu</summary>
+  
   <description>
     <p>
       Pick colors from anywhere on your screen with the COSMIC Eyedropper applet.
@@ -95,6 +101,34 @@
   </keywords>
   <content_rating type="oars-1.1" />
 <releases>
+  <release version="0.6.6" date="2026-11-19">
+    <description>
+      <ul>
+        <li>Reduce CPU usage while the picker is idle. Thanks to @mikeyarce.</li>
+        <li>Improve screen capture and picker overlay handling.</li>
+        <li>Refine the color preview and popup sizing.</li>
+      </ul>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.6</url>
+  </release>
+  <release version="0.6.5" date="2026-11-14">
+    <description>
+      <p>Improved screen capture permission handling and stability.</p>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.5</url>
+  </release>
+  <release version="0.6.4" date="2026-11-10">
+    <description>
+      <p>Stability improvements.</p>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.4</url>
+  </release>
+  <release version="0.6.3" date="2026-11-10">
+    <description>
+      <p>Added a Polish translation for the desktop entry.</p>
+    </description>
+    <url type="details">https://github.com/nalladev/cosmic-ext-applet-eyedropper/releases/tag/v0.6.3</url>
+  </release>
   <release version="0.6.2" date="2026-09-10">
     <description>
       <ul>
