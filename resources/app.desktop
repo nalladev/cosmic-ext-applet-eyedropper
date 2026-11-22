@@ -1,8 +1,10 @@
 [Desktop Entry]
 Name=Eyedropper
 Name[cs]=Kapátko
+Name[sv]=Droppflaska
 Comment=Eyedropper applet for cosmic desktop. Pick colours from the screen.
 Comment[cs]=Applet kapátka pro prostředí COSMIC. Vybírejte barvy přímo z obrazovky.
+Comment[sv]=Färgväljarapplet för COSMIC miljön. Välj färger direkt från skärmen.
 Comment[pl]=Aplet Eyedropper dla środowiska COSMIC. Pobieraj kolory z ekranu.
 Type=Application
 Icon=io.github.nalladev.CosmicExtAppletEyedropper-symbolic
