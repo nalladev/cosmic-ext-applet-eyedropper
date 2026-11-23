@@ -50,11 +50,11 @@
       Klicka på pipettikonen i panelen och klicka sedan på valfri pixel för att hämta dess färg.
     </p>
     <ul>
-      <li xml:lang="sv">Ett zoomförstoringsverktyg med 8–24 gångers förstoring följer markören för exakt val av pixlar./li>
-      <li xml:lang="sv">Kopiera färger som HEX, RGB eller HSL/li>
+      <li xml:lang="sv">Ett zoomförstoringsverktyg med 8–24 gångers förstoring följer markören för exakt val av pixlar.</li>
+      <li xml:lang="sv">Kopiera färger som HEX, RGB eller HSL</li>
       <li xml:lang="sv">Valfri automatisk kopiering till urklipp vid markering</li>
       <li xml:lang="sv">Färghistorik i panelens rullgardinsmeny</li>
-      <li xml:lang="cs">Starta ett val i ett steg med hjälp av ett kortkommando</li>
+      <li xml:lang="sv">Starta ett val i ett steg med hjälp av ett kortkommando</li>
     </ul>
     <p xml:lang="pl">
       Pobieraj kolory z dowolnego miejsca ekranu dzięki temu apletowi.
